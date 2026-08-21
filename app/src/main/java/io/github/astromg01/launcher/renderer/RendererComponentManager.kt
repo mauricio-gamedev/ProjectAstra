@@ -19,7 +19,7 @@ object RendererComponentManager {
     private const val MOBILEGLUES_APK_SHA256 =
         "a7e1eb29731fdece7ab3af7fb00692b856f1808a7544436e7b3eb6c08355581a"
     private const val MAX_DOWNLOAD_ATTEMPTS = 3
-    private const val USER_AGENT = "ProjectAstra/0.1.0-alpha08"
+    private const val USER_AGENT = "ProjectAstra/0.1.0-alpha19"
 
     fun installedMobileGlues(context: Context): InstalledRenderer? {
         val abi = preferredAbi() ?: return null
@@ -113,7 +113,14 @@ object RendererComponentManager {
     fun environment(context: Context, renderer: InstalledRenderer): Map<String, String> {
         val mgDir = File(context.filesDir, "MobileGlues").apply { mkdirs() }
         return linkedMapOf(
+            // POJAV_RENDERER is consumed by the launcher/native renderer layer.
             "POJAV_RENDERER" to "opengles3",
+            // The patched Android LWJGL GLFW shim separately reads AMETHYST_RENDERER
+            // in glfwCreateWindow() to select its advertised GL context profile.
+            // Without this value its glDriver local is null and GLFW crashes before
+            // the first real window is registered.
+            "AMETHYST_RENDERER" to "opengles_mobileglues",
+            "POJAV_LOAD_TURNIP" to "0",
             "POJAVEXEC_EGL" to renderer.libraryPath,
             "LIBGL_EGL" to renderer.libraryPath,
             "MG_DIR_PATH" to mgDir.absolutePath,
