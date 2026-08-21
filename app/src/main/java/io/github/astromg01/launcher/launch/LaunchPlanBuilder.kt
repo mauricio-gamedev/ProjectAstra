@@ -17,7 +17,7 @@ import java.io.File
 
 object LaunchPlanBuilder {
     private const val LAUNCHER_NAME = "ProjectAstra"
-    private const val LAUNCHER_VERSION = "0.1.0-alpha07"
+    private const val LAUNCHER_VERSION = "0.1.0-alpha08"
 
     fun build(
         context: Context,
@@ -113,7 +113,7 @@ object LaunchPlanBuilder {
         }
 
         val warnings = buildList {
-            add("JLI + MobileGlues + LWJGL Android preparados; Surface/EGL e callbacks nativos ainda pendentes.")
+            add("JLI + MobileGlues + LWJGL Android + ANativeWindow preparados; EGL em validação na alpha08 e callbacks nativos ainda pendentes.")
             if (account.type == AccountType.OFFLINE) {
                 add("Conta offline: válida para single-player/LAN e servidores que aceitam identidades offline.")
             }
