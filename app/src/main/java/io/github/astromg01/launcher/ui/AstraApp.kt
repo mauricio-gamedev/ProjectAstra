@@ -109,7 +109,7 @@ private fun HomeScreen(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Launcher Core • Alpha", style = MaterialTheme.typography.headlineSmall)
-        Text("A base já gerencia contas, versões, instâncias, arquivos do jogo e runtimes Java Android.")
+        Text("A base já gerencia contas, versões, arquivos, runtimes Java e planos reais de execução do Minecraft.")
 
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -127,8 +127,8 @@ private fun HomeScreen(modifier: Modifier = Modifier) {
                 Text("✓ Version Manager")
                 Text("✓ Minecraft download pipeline")
                 Text("✓ Java Runtime Manager")
-                Text("→ Launch-plan builder")
-                Text("→ Renderer plugins")
+                Text("✓ Launch-plan builder")
+                Text("→ Android LWJGL + renderer")
                 Text("→ Auto Optimize")
             }
         }
@@ -171,7 +171,9 @@ private fun InstancesScreen(
 
                 OutlinedButton(
                     onClick = { viewModel.refreshVersions() },
-                    enabled = !viewModel.isLoadingVersions && viewModel.installingInstanceId == null
+                    enabled = !viewModel.isLoadingVersions &&
+                        viewModel.installingInstanceId == null &&
+                        viewModel.preparingLaunchInstanceId == null
                 ) {
                     Text("Atualizar versões")
                 }
@@ -179,6 +181,12 @@ private fun InstancesScreen(
         }
 
         viewModel.installMessage?.let { message ->
+            Card {
+                Text(message, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        viewModel.launchMessage?.let { message ->
             Card {
                 Text(message, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.primary)
             }
@@ -199,7 +207,9 @@ private fun InstancesScreen(
                 viewModel.clearError()
                 showCreateDialog = true
             },
-            enabled = viewModel.versions.isNotEmpty() && viewModel.installingInstanceId == null
+            enabled = viewModel.versions.isNotEmpty() &&
+                viewModel.installingInstanceId == null &&
+                viewModel.preparingLaunchInstanceId == null
         ) {
             Text("+ Criar instância")
         }
@@ -222,7 +232,9 @@ private fun InstancesScreen(
             val javaMajor = if (installed) viewModel.installedJavaMajor(instance.minecraftVersion) else null
             val runtimeReady = javaMajor != null && runtimeViewModel.isInstalled(javaMajor)
             val isInstalling = viewModel.installingInstanceId == instance.id
+            val isPreparing = viewModel.preparingLaunchInstanceId == instance.id
             val progress = if (isInstalling) viewModel.installProgress else null
+            val launchPlan = viewModel.launchPlanFor(instance.id)
 
             Card {
                 Column(
@@ -243,7 +255,7 @@ private fun InstancesScreen(
                         if (javaMajor != null) {
                             Text(
                                 if (runtimeReady) {
-                                    "Java $javaMajor instalado • pronto para o launch pipeline"
+                                    "Java $javaMajor instalado"
                                 } else {
                                     "Java $javaMajor necessário • instale em Ajustes"
                                 },
@@ -254,6 +266,16 @@ private fun InstancesScreen(
                                 },
                                 style = MaterialTheme.typography.bodySmall
                             )
+                        }
+                        if (launchPlan != null) {
+                            Text(
+                                "Launch plan pronto • ${launchPlan.classpathCount} JARs • ${launchPlan.mainClass}",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            launchPlan.warnings.firstOrNull()?.let { warning ->
+                                Text(warning, style = MaterialTheme.typography.labelSmall)
+                            }
                         }
                     } else if (progress != null) {
                         Text(
@@ -272,27 +294,49 @@ private fun InstancesScreen(
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (!installed) {
-                            OutlinedButton(
-                                onClick = { viewModel.installInstance(instance.id) },
-                                enabled = viewModel.installingInstanceId == null
-                            ) {
-                                Text(if (isInstalling) "Instalando…" else "Instalar")
+                        when {
+                            !installed -> {
+                                OutlinedButton(
+                                    onClick = { viewModel.installInstance(instance.id) },
+                                    enabled = viewModel.installingInstanceId == null &&
+                                        viewModel.preparingLaunchInstanceId == null
+                                ) {
+                                    Text(if (isInstalling) "Instalando…" else "Instalar")
+                                }
                             }
-                        } else {
-                            OutlinedButton(onClick = {}, enabled = false) {
-                                Text(
-                                    if (runtimeReady) "Jogar • pipeline pendente"
-                                    else "Jogar • Java pendente"
-                                )
+                            !runtimeReady -> {
+                                OutlinedButton(onClick = {}, enabled = false) {
+                                    Text("Jogar • Java pendente")
+                                }
+                            }
+                            else -> {
+                                OutlinedButton(
+                                    onClick = { viewModel.prepareLaunchPlan(instance.id) },
+                                    enabled = viewModel.installingInstanceId == null &&
+                                        viewModel.preparingLaunchInstanceId == null
+                                ) {
+                                    Text(
+                                        when {
+                                            isPreparing -> "Preparando…"
+                                            launchPlan != null -> "Refazer plano"
+                                            else -> "Preparar execução"
+                                        }
+                                    )
+                                }
                             }
                         }
 
                         TextButton(
                             onClick = { viewModel.removeInstance(instance.id) },
-                            enabled = !isInstalling
+                            enabled = !isInstalling && !isPreparing
                         ) {
                             Text("Remover")
+                        }
+                    }
+
+                    if (launchPlan != null) {
+                        Button(onClick = {}, enabled = false) {
+                            Text("Jogar • renderer Android pendente")
                         }
                     }
                 }
