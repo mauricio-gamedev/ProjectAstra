@@ -37,6 +37,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.astromg01.launcher.account.AccountType
 import io.github.astromg01.launcher.account.AccountViewModel
 import io.github.astromg01.launcher.core.DeviceProfiler
+import io.github.astromg01.launcher.instance.InstanceViewModel
 
 private enum class AppTab(val title: String) {
     HOME("Início"),
@@ -47,7 +48,10 @@ private enum class AppTab(val title: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AstraApp(accountViewModel: AccountViewModel = viewModel()) {
+fun AstraApp(
+    accountViewModel: AccountViewModel = viewModel(),
+    instanceViewModel: InstanceViewModel = viewModel()
+) {
     var tab by remember { mutableStateOf(AppTab.HOME) }
 
     Scaffold(
@@ -79,7 +83,7 @@ fun AstraApp(accountViewModel: AccountViewModel = viewModel()) {
     ) { padding ->
         when (tab) {
             AppTab.HOME -> HomeScreen(Modifier.padding(padding))
-            AppTab.INSTANCES -> InstancesScreen(Modifier.padding(padding))
+            AppTab.INSTANCES -> InstancesScreen(instanceViewModel, Modifier.padding(padding))
             AppTab.ACCOUNTS -> AccountsScreen(accountViewModel, Modifier.padding(padding))
             AppTab.SETTINGS -> SettingsScreen(Modifier.padding(padding))
         }
@@ -113,29 +117,193 @@ private fun HomeScreen(modifier: Modifier = Modifier) {
 
         Card {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Próximo núcleo", fontWeight = FontWeight.Bold)
-                Text("1. Version Manager")
-                Text("2. Java Runtime Manager")
-                Text("3. Minecraft launch pipeline")
-                Text("4. Renderer plugins")
-                Text("5. Auto Optimize")
+                Text("Núcleo do launcher", fontWeight = FontWeight.Bold)
+                Text("✓ Version Manager")
+                Text("→ Java Runtime Manager")
+                Text("→ Minecraft download pipeline")
+                Text("→ Launch pipeline")
+                Text("→ Renderer plugins")
+                Text("→ Auto Optimize")
             }
         }
     }
 }
 
 @Composable
-private fun InstancesScreen(modifier: Modifier = Modifier) {
+private fun InstancesScreen(
+    viewModel: InstanceViewModel,
+    modifier: Modifier = Modifier
+) {
+    var showCreateDialog by remember { mutableStateOf(false) }
+
     Column(
-        modifier = modifier.fillMaxSize().padding(20.dp),
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text("Instâncias", style = MaterialTheme.typography.headlineSmall)
-        Text("A estrutura de instâncias já existe no core. A instalação real de Minecraft entra na próxima etapa.")
-        Button(onClick = {}, enabled = false) {
+        Text("Perfis independentes de Minecraft. Cada instância poderá ter versão, Java, renderer e otimizações próprios.")
+
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Column(
+                Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text("Version Manager", fontWeight = FontWeight.Bold)
+                when {
+                    viewModel.isLoadingVersions -> Text("Consultando versões oficiais da Mojang…")
+                    viewModel.latestRelease != null -> {
+                        Text("Release atual: ${viewModel.latestRelease}")
+                        Text("Snapshot atual: ${viewModel.latestSnapshot}")
+                        Text("${viewModel.versions.size} versões indexadas")
+                    }
+                    else -> Text("Manifest ainda não carregado.")
+                }
+
+                if (viewModel.errorMessage != null && !showCreateDialog) {
+                    Text(
+                        viewModel.errorMessage ?: "Erro desconhecido",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = { viewModel.refreshVersions() },
+                    enabled = !viewModel.isLoadingVersions
+                ) {
+                    Text("Atualizar versões")
+                }
+            }
+        }
+
+        Button(
+            onClick = {
+                viewModel.clearError()
+                showCreateDialog = true
+            },
+            enabled = viewModel.versions.isNotEmpty()
+        ) {
             Text("+ Criar instância")
         }
+
+        if (viewModel.instances.isEmpty()) {
+            Card {
+                Text(
+                    if (viewModel.versions.isEmpty()) {
+                        "Carregue o manifest para criar sua primeira instância."
+                    } else {
+                        "Nenhuma instância criada. O Version Manager já está pronto para a primeira."
+                    },
+                    modifier = Modifier.padding(18.dp)
+                )
+            }
+        }
+
+        viewModel.instances.forEach { instance ->
+            Card {
+                Column(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(instance.name, fontWeight = FontWeight.Bold)
+                    Text("Minecraft ${instance.minecraftVersion}")
+                    Text("Renderer: ${instance.renderer.name}")
+                    Text("Memória: ${instance.memoryMb} MB")
+                    Text(
+                        "Configuração criada • arquivos do jogo ainda não instalados",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = {}, enabled = false) {
+                            Text("Instalar")
+                        }
+                        TextButton(onClick = { viewModel.removeInstance(instance.id) }) {
+                            Text("Remover")
+                        }
+                    }
+                }
+            }
+        }
     }
+
+    if (showCreateDialog) {
+        CreateInstanceDialog(
+            latestRelease = viewModel.latestRelease.orEmpty(),
+            latestSnapshot = viewModel.latestSnapshot.orEmpty(),
+            error = viewModel.errorMessage,
+            onDismiss = {
+                viewModel.clearError()
+                showCreateDialog = false
+            },
+            onCreate = { name, version ->
+                if (viewModel.createInstance(name, version)) {
+                    showCreateDialog = false
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun CreateInstanceDialog(
+    latestRelease: String,
+    latestSnapshot: String,
+    error: String?,
+    onDismiss: () -> Unit,
+    onCreate: (String, String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var version by remember { mutableStateOf(latestRelease) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Criar instância") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Crie primeiro o perfil. Na próxima etapa o Astra instalará client, libraries, assets e Java.")
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nome da instância") },
+                    placeholder = { Text("Ex.: Survival 26.2") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = version,
+                    onValueChange = { version = it },
+                    label = { Text("Versão Minecraft") },
+                    singleLine = true
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (latestRelease.isNotBlank()) {
+                        TextButton(onClick = { version = latestRelease }) {
+                            Text("Release $latestRelease")
+                        }
+                    }
+                    if (latestSnapshot.isNotBlank() && latestSnapshot != latestRelease) {
+                        TextButton(onClick = { version = latestSnapshot }) {
+                            Text("Snapshot")
+                        }
+                    }
+                }
+                if (error != null) {
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onCreate(name, version) }) {
+                Text("Criar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
 }
 
 @Composable
