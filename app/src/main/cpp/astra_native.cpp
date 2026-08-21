@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <dlfcn.h>
+#include <cerrno>
 #include <cstdlib>
 #include <string>
 
