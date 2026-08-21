@@ -26,6 +26,17 @@ object AstraNativeBridge {
         logPath: String
     ): String
 
+    external fun launchMinecraftPlan(
+        jliLibraryPath: String,
+        javaExecutable: String,
+        javaHome: String,
+        workingDirectory: String,
+        logPath: String,
+        jvmArguments: Array<String>,
+        mainClass: String,
+        gameArguments: Array<String>
+    ): String
+
     external fun shutdownGraphics()
 
     external fun releaseSurface()
@@ -69,6 +80,28 @@ object AstraNativeBridge {
         logPath: String
     ): NativeProbeResult = parseNativeResult {
         launchJavaVersionTest(jliLibraryPath, javaExecutable, workingDirectory, logPath)
+    }
+
+    fun launchMinecraft(
+        jliLibraryPath: String,
+        javaExecutable: String,
+        javaHome: String,
+        workingDirectory: String,
+        logPath: String,
+        jvmArguments: List<String>,
+        mainClass: String,
+        gameArguments: List<String>
+    ): NativeProbeResult = parseNativeResult {
+        launchMinecraftPlan(
+            jliLibraryPath = jliLibraryPath,
+            javaExecutable = javaExecutable,
+            javaHome = javaHome,
+            workingDirectory = workingDirectory,
+            logPath = logPath,
+            jvmArguments = jvmArguments.toTypedArray(),
+            mainClass = mainClass,
+            gameArguments = gameArguments.toTypedArray()
+        )
     }
 
     private inline fun parseNativeResult(block: () -> String): NativeProbeResult {
