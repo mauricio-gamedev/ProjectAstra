@@ -103,7 +103,7 @@ private fun HomeScreen(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Launcher Core • Alpha", style = MaterialTheme.typography.headlineSmall)
-        Text("A fundação está pronta para receber versões, runtimes Java, renderers e o motor de otimização.")
+        Text("A base já gerencia contas, versões, instâncias e os arquivos oficiais do Minecraft.")
 
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -119,8 +119,8 @@ private fun HomeScreen(modifier: Modifier = Modifier) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Núcleo do launcher", fontWeight = FontWeight.Bold)
                 Text("✓ Version Manager")
+                Text("✓ Minecraft download pipeline")
                 Text("→ Java Runtime Manager")
-                Text("→ Minecraft download pipeline")
                 Text("→ Launch pipeline")
                 Text("→ Renderer plugins")
                 Text("→ Auto Optimize")
@@ -144,7 +144,7 @@ private fun InstancesScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text("Instâncias", style = MaterialTheme.typography.headlineSmall)
-        Text("Perfis independentes de Minecraft. Cada instância poderá ter versão, Java, renderer e otimizações próprios.")
+        Text("Perfis independentes de Minecraft. Assets e libraries compatíveis são compartilhados para economizar armazenamento.")
 
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(
@@ -162,19 +162,28 @@ private fun InstancesScreen(
                     else -> Text("Manifest ainda não carregado.")
                 }
 
-                if (viewModel.errorMessage != null && !showCreateDialog) {
-                    Text(
-                        viewModel.errorMessage ?: "Erro desconhecido",
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-
                 OutlinedButton(
                     onClick = { viewModel.refreshVersions() },
-                    enabled = !viewModel.isLoadingVersions
+                    enabled = !viewModel.isLoadingVersions && viewModel.installingInstanceId == null
                 ) {
                     Text("Atualizar versões")
                 }
+            }
+        }
+
+        viewModel.installMessage?.let { message ->
+            Card {
+                Text(message, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        if (viewModel.errorMessage != null && !showCreateDialog) {
+            Card {
+                Text(
+                    viewModel.errorMessage ?: "Erro desconhecido",
+                    modifier = Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.error
+                )
             }
         }
 
@@ -183,7 +192,7 @@ private fun InstancesScreen(
                 viewModel.clearError()
                 showCreateDialog = true
             },
-            enabled = viewModel.versions.isNotEmpty()
+            enabled = viewModel.versions.isNotEmpty() && viewModel.installingInstanceId == null
         ) {
             Text("+ Criar instância")
         }
@@ -202,6 +211,10 @@ private fun InstancesScreen(
         }
 
         viewModel.instances.forEach { instance ->
+            val installed = viewModel.isInstalled(instance.minecraftVersion)
+            val isInstalling = viewModel.installingInstanceId == instance.id
+            val progress = if (isInstalling) viewModel.installProgress else null
+
             Card {
                 Column(
                     Modifier.fillMaxWidth().padding(16.dp),
@@ -211,15 +224,51 @@ private fun InstancesScreen(
                     Text("Minecraft ${instance.minecraftVersion}")
                     Text("Renderer: ${instance.renderer.name}")
                     Text("Memória: ${instance.memoryMb} MB")
-                    Text(
-                        "Configuração criada • arquivos do jogo ainda não instalados",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = {}, enabled = false) {
-                            Text("Instalar")
+
+                    if (installed) {
+                        val javaMajor = viewModel.installedJavaMajor(instance.minecraftVersion)
+                        Text(
+                            buildString {
+                                append("Arquivos instalados e verificados")
+                                if (javaMajor != null) append(" • Java $javaMajor")
+                            },
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    } else if (progress != null) {
+                        Text(
+                            "${progress.stage}: ${progress.percent}%",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        progress.currentFile?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall)
                         }
-                        TextButton(onClick = { viewModel.removeInstance(instance.id) }) {
+                    } else {
+                        Text(
+                            "Configuração criada • arquivos do jogo ainda não instalados",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (!installed) {
+                            OutlinedButton(
+                                onClick = { viewModel.installInstance(instance.id) },
+                                enabled = viewModel.installingInstanceId == null
+                            ) {
+                                Text(if (isInstalling) "Instalando…" else "Instalar")
+                            }
+                        } else {
+                            OutlinedButton(onClick = {}, enabled = false) {
+                                Text("Jogar • Java pendente")
+                            }
+                        }
+
+                        TextButton(
+                            onClick = { viewModel.removeInstance(instance.id) },
+                            enabled = !isInstalling
+                        ) {
                             Text("Remover")
                         }
                     }
@@ -262,7 +311,7 @@ private fun CreateInstanceDialog(
         title = { Text("Criar instância") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Crie primeiro o perfil. Na próxima etapa o Astra instalará client, libraries, assets e Java.")
+                Text("Escolha a versão. Depois o Astra pode baixar client, libraries e assets oficiais diretamente para o armazenamento do app.")
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -432,7 +481,7 @@ private fun SettingsScreen(modifier: Modifier = Modifier) {
         Text("Ajustes", style = MaterialTheme.typography.headlineSmall)
         Text("Perfil de desempenho padrão: Adaptive")
         Text("Renderer padrão: Auto")
-        Text("Java: automático por versão do Minecraft")
-        Text("Esses controles serão ativados conforme o runtime entrar.")
+        Text("Java: automático pela metadata da versão")
+        Text("Assinatura: suporte a chave estável de CI preparado")
     }
 }
