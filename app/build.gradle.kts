@@ -17,18 +17,23 @@ val hasAstraSigning = listOf(
 android {
     namespace = "io.github.astromg01.launcher"
     compileSdk = 36
+    ndkVersion = "27.3.13750724"
 
     defaultConfig {
         applicationId = "io.github.astromg01.launcher"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.1.0-alpha05"
+        versionCode = 6
+        versionName = "0.1.0-alpha06"
         buildConfigField(
             "String",
             "SIGNING_MODE",
             "\"${if (hasAstraSigning) "stable" else "temporary"}\""
         )
+
+        ndk {
+            abiFilters += setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+        }
     }
 
     signingConfigs {
@@ -62,6 +67,13 @@ android {
         }
     }
 
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -73,6 +85,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources.excludes += setOf(
             "/META-INF/{AL2.0,LGPL2.1}",
             "META-INF/LICENSE*",
