@@ -196,7 +196,7 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
                 append(result.detail)
                 append("\n\nFrame verde apresentado pela cadeia:\n")
                 append("ANativeWindow → MobileGlues → EGL → OpenGL → SwapBuffers ✓\n")
-                append("\nAlpha10: JVM test grava um relatório persistente mesmo se :game encerrar.")
+                append("\nAlpha11: JLI corrigido com argv NULL + ambiente nativo do OpenJDK.")
             }
         } else {
             buildString {
@@ -219,10 +219,10 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
         }
 
         statusView.text = buildString {
-            append("Project Astra • JVM Bridge alpha10\n")
+            append("Project Astra • JVM Bridge alpha11\n")
             append("Graphics Bridge validado ✓\n")
             append("Processo de jogo isolado: :game ✓\n\n")
-            append("Preparando flight recorder do OpenJDK…")
+            append("Preparando JLI corrigido + flight recorder…")
         }
 
         Thread {
