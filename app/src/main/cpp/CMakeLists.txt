@@ -6,6 +6,7 @@ add_library(
     astra_native
     SHARED
     astra_native.cpp
+    astra_jli.cpp
 )
 
 target_compile_features(astra_native PRIVATE cxx_std_17)
