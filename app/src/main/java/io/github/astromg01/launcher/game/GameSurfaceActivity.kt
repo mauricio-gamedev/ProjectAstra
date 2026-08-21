@@ -12,6 +12,11 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.TextView
+import io.github.astromg01.launcher.account.AccountProfile
+import io.github.astromg01.launcher.account.AccountStore
+import io.github.astromg01.launcher.core.MinecraftInstance
+import io.github.astromg01.launcher.instance.InstanceStore
+import io.github.astromg01.launcher.launch.LaunchPlanBuilder
 import io.github.astromg01.launcher.nativebridge.AstraNativeBridge
 import io.github.astromg01.launcher.nativebridge.NativeRuntimeValidator
 import io.github.astromg01.launcher.renderer.RendererComponentManager
@@ -20,9 +25,10 @@ import io.github.astromg01.launcher.runtime.RuntimeInstaller
 class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
     private lateinit var statusView: TextView
     private lateinit var jvmButton: Button
+    private lateinit var minecraftButton: Button
     private var surfaceAttached = false
     private var graphicsStarted = false
-    private var jvmTestRunning = false
+    private var launchRunning = false
     private var lastWidth = 0
     private var lastHeight = 0
 
@@ -98,6 +104,22 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM or Gravity.END
             ).apply {
+                setMargins(dp(16), dp(16), dp(176), dp(16))
+            }
+        )
+
+        minecraftButton = Button(this).apply {
+            text = "Minecraft boot"
+            isEnabled = false
+            setOnClickListener { runMinecraftBoot() }
+        }
+        root.addView(
+            minecraftButton,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.END
+            ).apply {
                 setMargins(dp(16), dp(16), dp(16), dp(16))
             }
         )
@@ -117,7 +139,7 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        if (jvmTestRunning) return
+        if (launchRunning) return
 
         if (!surfaceAttached) {
             val attach = AstraNativeBridge.attach(holder.surface)
@@ -140,19 +162,19 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        if (!jvmTestRunning) {
+        if (!launchRunning) {
             AstraNativeBridge.releaseSurface()
         }
         surfaceAttached = false
         graphicsStarted = false
-        jvmButton.isEnabled = false
-        if (!jvmTestRunning) {
+        setLaunchButtons(false)
+        if (!launchRunning) {
             statusView.text = "Surface Android destruída • EGL e bridge liberados"
         }
     }
 
     override fun onDestroy() {
-        if (!jvmTestRunning) {
+        if (!launchRunning) {
             AstraNativeBridge.releaseSurface()
         }
         surfaceAttached = false
@@ -189,14 +211,15 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
 
         val result = AstraNativeBridge.startGraphics(renderer.libraryPath)
         graphicsStarted = result.success
-        jvmButton.isEnabled = result.success && !jvmTestRunning
+        setLaunchButtons(result.success && !launchRunning)
         statusView.text = if (result.success) {
             buildString {
                 append("Project Astra • Graphics Bridge ✓\n")
                 append(result.detail)
                 append("\n\nFrame verde apresentado pela cadeia:\n")
                 append("ANativeWindow → MobileGlues → EGL → OpenGL → SwapBuffers ✓\n")
-                append("\nAlpha11: JLI corrigido com argv NULL + ambiente nativo do OpenJDK.")
+                append("\nAlpha12: JVM validada; Minecraft boot real disponível.")
+                append("\nEscolha apenas UM teste por abertura do Bridge test.")
             }
         } else {
             buildString {
@@ -209,9 +232,9 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
     }
 
     private fun runJvmTest() {
-        if (jvmTestRunning) return
-        jvmTestRunning = true
-        jvmButton.isEnabled = false
+        if (launchRunning) return
+        launchRunning = true
+        setLaunchButtons(false)
 
         if (graphicsStarted) {
             AstraNativeBridge.shutdownGraphics()
@@ -219,10 +242,10 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
         }
 
         statusView.text = buildString {
-            append("Project Astra • JVM Bridge alpha11\n")
+            append("Project Astra • JVM Bridge alpha12\n")
             append("Graphics Bridge validado ✓\n")
             append("Processo de jogo isolado: :game ✓\n\n")
-            append("Preparando JLI corrigido + flight recorder…")
+            append("Executando smoke test do OpenJDK…")
         }
 
         Thread {
@@ -252,8 +275,6 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
                     logPath = logFile.absolutePath
                 )
 
-                // If JLI_Launch terminates :game, execution never reaches here.
-                // The STARTED marker + stdout/stderr file are intentionally left for MainActivity.
                 JvmSmokeReportStore.markReturned(
                     context = this,
                     javaMajor = runtime.majorVersion,
@@ -289,7 +310,7 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
                         append("\nJava ${report.javaMajor}\n\n")
                         append("--- stdout/stderr OpenJDK ---\n")
                         append(report.log.ifBlank { "(sem saída capturada)" })
-                        append("\n\nRelatório persistente salvo para a tela principal.")
+                        append("\n\nReabra Bridge test para iniciar outro JLI.")
                     }
                 }.onFailure { error ->
                     statusView.text = buildString {
@@ -299,9 +320,165 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
                         append("\n\nRelatório persistente salvo para a tela principal.")
                     }
                 }
-                jvmTestRunning = false
+                launchRunning = false
             }
         }.start()
+    }
+
+    private fun runMinecraftBoot() {
+        if (launchRunning) return
+        launchRunning = true
+        setLaunchButtons(false)
+
+        if (graphicsStarted) {
+            AstraNativeBridge.shutdownGraphics()
+            graphicsStarted = false
+        }
+
+        statusView.text = buildString {
+            append("Project Astra • Minecraft Boot alpha12\n")
+            append("Graphics Bridge validado ✓\n")
+            append("JVM/JLI validada no dispositivo ✓\n")
+            append("Processo isolado :game ✓\n\n")
+            append("Montando LaunchPlan real da instância…")
+        }
+
+        Thread {
+            var selectedInstance: MinecraftInstance? = null
+            var selectedVersion = ""
+            var selectedJava = 0
+            var selectedMainClass = ""
+
+            val result = runCatching {
+                val (instance, account) = resolveLaunchTarget()
+                selectedInstance = instance
+                selectedVersion = instance.minecraftVersion
+
+                val plan = LaunchPlanBuilder.build(this, instance, account)
+                selectedJava = plan.javaMajorVersion
+                selectedMainClass = plan.mainClass
+
+                val runtime = RuntimeInstaller.installedRuntime(this, plan.javaMajorVersion)
+                    ?: error("Java ${plan.javaMajorVersion} do LaunchPlan não está instalado.")
+                val nativeStatus = NativeRuntimeValidator.validate(this, runtime)
+                if (!nativeStatus.success || nativeStatus.jliPath.isNullOrBlank()) {
+                    error(nativeStatus.detail)
+                }
+
+                val envFailure = plan.environment.entries.firstOrNull { (key, value) ->
+                    AstraNativeBridge.setEnvironment(key, value) != 0
+                }
+                if (envFailure != null) {
+                    error("Falha ao aplicar ambiente do LaunchPlan: ${envFailure.key}")
+                }
+
+                MinecraftBootReportStore.markStarted(
+                    context = this,
+                    instanceId = plan.instanceId,
+                    minecraftVersion = plan.minecraftVersion,
+                    javaMajor = plan.javaMajorVersion,
+                    mainClass = plan.mainClass
+                )
+                val logFile = MinecraftBootReportStore.logFile(this)
+
+                runOnUiThread {
+                    statusView.text = buildString {
+                        append("Project Astra • Minecraft Boot alpha12\n")
+                        append("Instância: ${instance.name}\n")
+                        append("Minecraft: ${plan.minecraftVersion}\n")
+                        append("Java: ${plan.javaMajorVersion}\n")
+                        append("Main: ${plan.mainClass}\n")
+                        append("Classpath: ${plan.classpathCount} entradas\n")
+                        append("JVM args: ${plan.jvmArguments.size} • Game args: ${plan.gameArguments.size}\n\n")
+                        append("Entrando na main class real…")
+                    }
+                }
+
+                val launch = AstraNativeBridge.launchMinecraft(
+                    jliLibraryPath = nativeStatus.jliPath,
+                    javaExecutable = plan.javaExecutable,
+                    javaHome = runtime.homePath,
+                    workingDirectory = plan.workingDirectory,
+                    logPath = logFile.absolutePath,
+                    jvmArguments = plan.jvmArguments,
+                    mainClass = plan.mainClass,
+                    gameArguments = plan.gameArguments
+                )
+
+                MinecraftBootReportStore.markReturned(
+                    context = this,
+                    instanceId = plan.instanceId,
+                    minecraftVersion = plan.minecraftVersion,
+                    javaMajor = plan.javaMajorVersion,
+                    mainClass = plan.mainClass,
+                    success = launch.success,
+                    detail = launch.detail
+                )
+
+                MinecraftTestReport(
+                    success = launch.success,
+                    instanceName = instance.name,
+                    version = plan.minecraftVersion,
+                    javaMajor = plan.javaMajorVersion,
+                    mainClass = plan.mainClass,
+                    launchDetail = launch.detail,
+                    log = logFile.takeIf { it.isFile }?.readText().orEmpty().trim().takeLast(10000)
+                )
+            }
+
+            result.onFailure { error ->
+                MinecraftBootReportStore.markError(
+                    context = this,
+                    instanceId = selectedInstance?.id.orEmpty(),
+                    minecraftVersion = selectedVersion,
+                    javaMajor = selectedJava,
+                    mainClass = selectedMainClass,
+                    detail = error.message ?: error.javaClass.simpleName
+                )
+            }
+
+            runOnUiThread {
+                result.onSuccess { report ->
+                    statusView.text = buildString {
+                        append(if (report.success) "Project Astra • Minecraft retornou ✓\n" else "Project Astra • Minecraft parou\n")
+                        append("Instância: ${report.instanceName}\n")
+                        append("Minecraft ${report.version} • Java ${report.javaMajor}\n")
+                        append("Main: ${report.mainClass}\n")
+                        append("${report.launchDetail}\n\n")
+                        append("--- stdout/stderr Minecraft ---\n")
+                        append(report.log.ifBlank { "(sem saída capturada)" })
+                        append("\n\nFlight recorder salvo. Reabra Bridge test para outro boot.")
+                    }
+                }.onFailure { error ->
+                    statusView.text = buildString {
+                        append("Project Astra • Minecraft prelaunch falhou\n\n")
+                        append(error.message ?: error.javaClass.simpleName)
+                        append("\n\nO relatório também foi salvo para a tela principal.")
+                    }
+                }
+                launchRunning = false
+            }
+        }.start()
+    }
+
+    private fun resolveLaunchTarget(): Pair<MinecraftInstance, AccountProfile> {
+        val instances = InstanceStore(this).load()
+        val instance = instances.firstOrNull()
+            ?: error("Nenhuma instância criada. Crie/prepara uma instância antes do Minecraft boot.")
+
+        val accounts = AccountStore(this).load()
+        val account = instance.accountId
+            ?.let { id -> accounts.firstOrNull { it.id == id } }
+            ?: accounts.firstOrNull { it.isDefault }
+            ?: accounts.firstOrNull()
+            ?: error("Nenhuma conta disponível. Adicione uma conta offline ou Microsoft primeiro.")
+
+        return instance to account
+    }
+
+    private fun setLaunchButtons(enabled: Boolean) {
+        jvmButton.isEnabled = enabled
+        minecraftButton.isEnabled = enabled
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -310,6 +487,16 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
         val success: Boolean,
         val javaMajor: Int,
         val nativeDetail: String,
+        val launchDetail: String,
+        val log: String
+    )
+
+    private data class MinecraftTestReport(
+        val success: Boolean,
+        val instanceName: String,
+        val version: String,
+        val javaMajor: Int,
+        val mainClass: String,
         val launchDetail: String,
         val log: String
     )
