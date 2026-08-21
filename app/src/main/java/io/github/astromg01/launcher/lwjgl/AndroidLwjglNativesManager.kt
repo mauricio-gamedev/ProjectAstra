@@ -14,7 +14,7 @@ import java.util.zip.ZipInputStream
 object AndroidLwjglNativesManager {
     private const val UPSTREAM_COMMIT = "360d708262ff703d9b52782d20cd348410a33df5"
     private const val UPSTREAM_REPOSITORY = "AngelAuraMC/Amethyst-Android"
-    private const val USER_AGENT = "ProjectAstra/0.1.0-alpha14"
+    private const val USER_AGENT = "ProjectAstra/0.1.0-alpha15"
     private const val MAX_DOWNLOAD_ATTEMPTS = 3
 
     private data class NativePackageSpec(
@@ -59,13 +59,18 @@ object AndroidLwjglNativesManager {
             nativeDir.deleteRecursively()
         }
 
-        if (!marker.isFile || nativeLibraries(nativeDir).isEmpty()) {
+        if (!marker.isFile || !hasRequiredLibraries(nativeDir)) {
             nativeDir.deleteRecursively()
             nativeDir.mkdirs()
-            val extracted = extractAbiLibraries(packageFile, abi, nativeDir)
+            val extracted = extractAbiLibraries(packageFile, spec.version, abi, nativeDir)
             if (extracted.isEmpty()) {
                 nativeDir.deleteRecursively()
-                error("O pacote LWJGL ${spec.version} não contém natives para $abi.")
+                error("O pacote LWJGL ${spec.version} não contém natives reconhecíveis para $abi.")
+            }
+            if (!hasRequiredLibraries(nativeDir)) {
+                val names = nativeLibraries(nativeDir).joinToString { it.name }
+                nativeDir.deleteRecursively()
+                error("Pacote LWJGL ${spec.version} para $abi incompleto. Extraídos: $names")
             }
             marker.writeText(
                 buildString {
@@ -79,7 +84,9 @@ object AndroidLwjglNativesManager {
         }
 
         val libraries = nativeLibraries(nativeDir)
-        if (libraries.isEmpty()) error("Diretório native LWJGL vazio após extração: ${nativeDir.absolutePath}")
+        if (!hasRequiredLibraries(nativeDir)) {
+            error("Diretório native LWJGL incompleto após extração: ${nativeDir.absolutePath}")
+        }
 
         return InstalledLwjglNatives(
             version = version,
@@ -97,7 +104,7 @@ object AndroidLwjglNativesManager {
         val packageFile = File(root, spec.fileName)
         val nativeDir = File(root, "natives/$abi")
         val libraries = nativeLibraries(nativeDir)
-        if (!isValid(packageFile, spec) || libraries.isEmpty()) return null
+        if (!isValid(packageFile, spec) || !hasRequiredLibraries(nativeDir)) return null
         return InstalledLwjglNatives(
             version = version,
             abi = abi,
@@ -120,33 +127,51 @@ object AndroidLwjglNativesManager {
             ?.sortedBy { it.name }
             .orEmpty()
 
-    private fun extractAbiLibraries(packageFile: File, abi: String, outputDir: File): List<String> {
-        val prefix = "jni/$abi/"
-        val extracted = mutableListOf<String>()
+    private fun hasRequiredLibraries(directory: File): Boolean {
+        val names = nativeLibraries(directory).mapTo(hashSetOf()) { it.name }
+        return "liblwjgl.so" in names && "liblwjgl_opengl.so" in names
+    }
+
+    private fun extractAbiLibraries(
+        packageFile: File,
+        version: String,
+        abi: String,
+        outputDir: File
+    ): List<String> {
+        // Amethyst packages these binaries as Android assets rather than standard AAR jniLibs.
+        // Keep the jni/ prefix as a compatibility fallback for future/upstream package changes.
+        val prefixes = listOf(
+            "assets/components/lwjgl-$version-natives/$abi/",
+            "jni/$abi/"
+        )
+        val extracted = linkedSetOf<String>()
+        val canonicalRoot = outputDir.canonicalFile
+
         ZipInputStream(BufferedInputStream(FileInputStream(packageFile))).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
                 val name = entry.name
-                if (!entry.isDirectory && name.startsWith(prefix) && name.endsWith(".so")) {
-                    val fileName = name.substringAfterLast('/')
-                    require(fileName.isNotBlank() && '/' !in fileName && '\\' !in fileName) {
+                val matchingPrefix = prefixes.firstOrNull { prefix -> name.startsWith(prefix) }
+                if (!entry.isDirectory && matchingPrefix != null && name.endsWith(".so")) {
+                    val relativeName = name.removePrefix(matchingPrefix)
+                    // The currently validated package stores native libraries directly below the ABI
+                    // directory. Reject nested paths rather than flattening untrusted archive entries.
+                    require(relativeName.isNotBlank() && '/' !in relativeName && '\\' !in relativeName) {
                         "Entrada native LWJGL inválida: $name"
                     }
-                    val target = File(outputDir, fileName)
-                    val canonicalRoot = outputDir.canonicalFile
-                    val canonicalTarget = target.canonicalFile
-                    require(canonicalTarget.parentFile == canonicalRoot) {
+                    val target = File(canonicalRoot, relativeName).canonicalFile
+                    require(target.parentFile == canonicalRoot) {
                         "Entrada native LWJGL escaparia do diretório de destino: $name"
                     }
-                    FileOutputStream(canonicalTarget).use { output -> zip.copyTo(output, 64 * 1024) }
-                    canonicalTarget.setReadable(true, true)
-                    canonicalTarget.setExecutable(true, true)
-                    extracted += fileName
+                    FileOutputStream(target).use { output -> zip.copyTo(output, 128 * 1024) }
+                    target.setReadable(true, true)
+                    target.setExecutable(true, true)
+                    extracted += relativeName
                 }
                 zip.closeEntry()
             }
         }
-        return extracted
+        return extracted.toList()
     }
 
     private fun rawUrl(spec: NativePackageSpec): String =
