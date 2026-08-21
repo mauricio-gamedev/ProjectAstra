@@ -14,6 +14,7 @@ import java.security.MessageDigest
 object VersionInstaller {
     private const val USER_AGENT = "ProjectAstra/0.1.0-alpha02"
     private const val ASSET_BASE_URL = "https://resources.download.minecraft.net"
+    private const val MAX_DOWNLOAD_ATTEMPTS = 3
 
     fun isInstalled(context: Context, versionId: String): Boolean =
         markerFile(context, versionId).isFile
@@ -42,11 +43,7 @@ object VersionInstaller {
         val versionJson = File(versionDir, "${version.id}.json")
 
         onProgress(InstallProgress("Metadata da versão", 0, 1, versionJson.name))
-        downloadVerified(
-            url = version.url,
-            target = versionJson,
-            expectedSha1 = version.sha1
-        )
+        downloadVerified(version.url, versionJson, version.sha1)
         onProgress(InstallProgress("Metadata da versão", 1, 1, versionJson.name))
 
         val metadata = JSONObject(versionJson.readText())
@@ -58,9 +55,9 @@ object VersionInstaller {
         val clientJar = File(versionDir, "${version.id}.jar")
         onProgress(InstallProgress("Cliente Minecraft", 0, 1, clientJar.name))
         downloadVerified(
-            url = client.getString("url"),
-            target = clientJar,
-            expectedSha1 = client.optString("sha1").takeIf { it.isNotBlank() }
+            client.getString("url"),
+            clientJar,
+            client.optString("sha1").takeIf { it.isNotBlank() }
         )
         onProgress(InstallProgress("Cliente Minecraft", 1, 1, clientJar.name))
 
@@ -92,21 +89,15 @@ object VersionInstaller {
             )
             downloadVerified(entry.url, entry.target, entry.sha1)
         }
-        onProgress(
-            InstallProgress(
-                stage = "Libraries",
-                completed = libraryDownloads.size,
-                total = libraryDownloads.size
-            )
-        )
+        onProgress(InstallProgress("Libraries", libraryDownloads.size, libraryDownloads.size))
 
         val assetIndexId = assetIndex.getString("id")
         val assetIndexFile = File(root, "assets/indexes/$assetIndexId.json")
         onProgress(InstallProgress("Índice de assets", 0, 1, assetIndexFile.name))
         downloadVerified(
-            url = assetIndex.getString("url"),
-            target = assetIndexFile,
-            expectedSha1 = assetIndex.optString("sha1").takeIf { it.isNotBlank() }
+            assetIndex.getString("url"),
+            assetIndexFile,
+            assetIndex.optString("sha1").takeIf { it.isNotBlank() }
         )
         onProgress(InstallProgress("Índice de assets", 1, 1, assetIndexFile.name))
 
@@ -142,13 +133,7 @@ object VersionInstaller {
             }
             downloadVerified(entry.url, entry.target, entry.sha1)
         }
-        onProgress(
-            InstallProgress(
-                stage = "Assets",
-                completed = assetEntries.size,
-                total = assetEntries.size
-            )
-        )
+        onProgress(InstallProgress("Assets", assetEntries.size, assetEntries.size))
 
         val info = InstalledVersionInfo(
             versionId = version.id,
@@ -179,17 +164,30 @@ object VersionInstaller {
     private fun markerFile(context: Context, versionId: String): File =
         File(minecraftRoot(context), "versions/$versionId/.astra-installed.json")
 
-    private fun downloadVerified(
-        url: String,
-        target: File,
-        expectedSha1: String?
-    ) {
+    private fun downloadVerified(url: String, target: File, expectedSha1: String?) {
         target.parentFile?.mkdirs()
 
         if (target.isFile && (expectedSha1 == null || sha1(target).equals(expectedSha1, true))) {
             return
         }
 
+        var lastError: Throwable? = null
+        repeat(MAX_DOWNLOAD_ATTEMPTS) { attempt ->
+            try {
+                downloadOnce(url, target, expectedSha1)
+                return
+            } catch (error: Throwable) {
+                lastError = error
+                if (attempt < MAX_DOWNLOAD_ATTEMPTS - 1) {
+                    Thread.sleep(350L * (attempt + 1))
+                }
+            }
+        }
+
+        throw lastError ?: IllegalStateException("Falha ao baixar ${target.name}")
+    }
+
+    private fun downloadOnce(url: String, target: File, expectedSha1: String?) {
         if (target.exists()) target.delete()
         val temp = File(target.parentFile, "${target.name}.part")
         if (temp.exists()) temp.delete()
@@ -216,7 +214,6 @@ object VersionInstaller {
                         if (read <= 0) break
                         output.write(buffer, 0, read)
                     }
-                    output.fd.sync()
                 }
             }
 
@@ -250,7 +247,9 @@ object VersionInstaller {
                 digest.update(buffer, 0, read)
             }
         }
-        return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+        return digest.digest().joinToString("") { byte ->
+            "%02x".format(byte.toInt() and 0xff)
+        }
     }
 
     private data class DownloadEntry(
