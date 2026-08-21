@@ -31,9 +31,15 @@ using JliLaunchFn = int (JNICALL *)(
     jint ergo
 );
 
+struct RuntimeLibrarySpec {
+    const char* relativePath;
+    bool required;
+};
+
 std::mutex gJliMutex;
 bool gJliLaunchAttempted = false;
 void* gJliHandle = nullptr;
+std::vector<void*> gRuntimePreloadHandles;
 
 std::string toString(JNIEnv* env, jstring value) {
     if (value == nullptr) return {};
@@ -141,6 +147,71 @@ JliLaunchFn loadJli(const std::string& jliPath, std::string& error) {
         return nullptr;
     }
     return launch;
+}
+
+bool preloadRuntimeLibraries(const std::string& javaHome, std::string& error) {
+    // Android classloader namespaces do not necessarily honor an LD_LIBRARY_PATH
+    // changed after process creation. Loading the runtime libraries by absolute
+    // path in dependency order keeps their handles alive in the game process and
+    // lets later OpenJDK System.loadLibrary calls reuse the already resolved ELF
+    // objects instead of failing on sibling DT_NEEDED entries such as libnet.so.
+    static const RuntimeLibrarySpec libraries[] = {
+        {"lib/server/libjvm.so", true},
+        {"lib/libjava.so", true},
+        {"lib/libjimage.so", true},
+        {"lib/libverify.so", true},
+        {"lib/libnet.so", true},
+        {"lib/libnio.so", true},
+        {"lib/libzip.so", true},
+        {"lib/libmanagement.so", false},
+        {"lib/libmanagement_ext.so", false},
+        {"lib/libprefs.so", false},
+        {"lib/libinstrument.so", false},
+        {"lib/libextnet.so", false},
+        {"lib/libjsig.so", false}
+    };
+
+    std::fprintf(stderr, "[Project Astra alpha13] OpenJDK native preload\n");
+    gRuntimePreloadHandles.reserve(
+        gRuntimePreloadHandles.size() + sizeof(libraries) / sizeof(libraries[0])
+    );
+
+    for (const auto& spec : libraries) {
+        const std::string path = javaHome + "/" + spec.relativePath;
+        struct stat libraryStat {};
+        if (stat(path.c_str(), &libraryStat) != 0 || !S_ISREG(libraryStat.st_mode)) {
+            if (spec.required) {
+                error = "biblioteca OpenJDK obrigatória ausente: " + path;
+                std::fprintf(stderr, "preload FAIL required: %s (missing)\n", spec.relativePath);
+                std::fflush(stderr);
+                return false;
+            }
+            std::fprintf(stderr, "preload SKIP optional: %s (missing)\n", spec.relativePath);
+            continue;
+        }
+
+        dlerror();
+        void* handle = dlopen(path.c_str(), RTLD_NOW | RTLD_GLOBAL);
+        const char* dlError = dlerror();
+        if (handle == nullptr || dlError != nullptr) {
+            const std::string detail = dlError != nullptr ? dlError : "erro desconhecido";
+            if (spec.required) {
+                error = "preload OpenJDK falhou em " + std::string(spec.relativePath) + ": " + detail;
+                std::fprintf(stderr, "preload FAIL required: %s -> %s\n", spec.relativePath, detail.c_str());
+                std::fflush(stderr);
+                return false;
+            }
+            std::fprintf(stderr, "preload WARN optional: %s -> %s\n", spec.relativePath, detail.c_str());
+            continue;
+        }
+
+        gRuntimePreloadHandles.push_back(handle);
+        std::fprintf(stderr, "preload OK: %s\n", spec.relativePath);
+    }
+
+    std::fprintf(stderr, "runtime_preload=ready handles=%zu\n\n", gRuntimePreloadHandles.size());
+    std::fflush(stderr);
+    return true;
 }
 
 class StdioCapture {
@@ -269,7 +340,7 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchJavaVersi
     auto argv = buildArgv(storage, argc);
     const bool executableBit = access(javaPath.c_str(), X_OK) == 0;
 
-    std::fprintf(stderr, "[Project Astra alpha12] JLI_Launch JVM smoke test\n");
+    std::fprintf(stderr, "[Project Astra alpha13] JLI_Launch JVM smoke test\n");
     std::fprintf(stderr, "libjli=%s\n", jliPath.c_str());
     std::fprintf(stderr, "java=%s\n", javaPath.c_str());
     std::fprintf(stderr, "JAVA_HOME=%s\n", javaHome.c_str());
@@ -285,8 +356,8 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchJavaVersi
         nullptr,
         0,
         nullptr,
-        "Project Astra 0.1.0-alpha12",
-        "0.1.0-alpha12",
+        "Project Astra 0.1.0-alpha13",
+        "0.1.0-alpha13",
         "java",
         "java",
         JNI_FALSE,
@@ -351,6 +422,11 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchMinecraft
         return fromString(env, "ERROR|não foi possível capturar stdout/stderr: " + capture.error());
     }
 
+    if (!preloadRuntimeLibraries(javaHome, error)) {
+        capture.restore();
+        return fromString(env, "ERROR|" + error);
+    }
+
     std::vector<std::string> storage;
     storage.reserve(1 + jvmArgs.size() + 1 + gameArgs.size());
     storage.push_back(javaPath);
@@ -362,7 +438,7 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchMinecraft
     auto argv = buildArgv(storage, argc);
     const bool executableBit = access(javaPath.c_str(), X_OK) == 0;
 
-    std::fprintf(stderr, "[Project Astra alpha12] Minecraft LaunchPlan handoff\n");
+    std::fprintf(stderr, "[Project Astra alpha13] Minecraft LaunchPlan handoff\n");
     std::fprintf(stderr, "libjli=%s\n", jliPath.c_str());
     std::fprintf(stderr, "java=%s\n", javaPath.c_str());
     std::fprintf(stderr, "JAVA_HOME=%s\n", javaHome.c_str());
@@ -372,6 +448,7 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchMinecraft
     std::fprintf(stderr, "LD_LIBRARY_PATH=%s\n", ldLibraryPath.c_str());
     std::fprintf(stderr, "java_mode=%04o X_OK=%s\n", javaStat.st_mode & 07777, executableBit ? "yes" : "no");
     std::fprintf(stderr, "argc=%d argv_null_terminated=%s\n", argc, argv[argc] == nullptr ? "yes" : "no");
+    std::fprintf(stderr, "runtime_preload_handles=%zu\n", gRuntimePreloadHandles.size());
     std::fprintf(stderr, "Argument values intentionally omitted from this header to avoid exposing account tokens.\n\n");
     std::fflush(stderr);
 
@@ -382,8 +459,8 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchMinecraft
         nullptr,
         0,
         nullptr,
-        "Project Astra 0.1.0-alpha12",
-        "0.1.0-alpha12",
+        "Project Astra 0.1.0-alpha13",
+        "0.1.0-alpha13",
         "java",
         "java",
         JNI_FALSE,
