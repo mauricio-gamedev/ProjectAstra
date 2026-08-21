@@ -44,6 +44,20 @@ std::string toString(JNIEnv* env, jstring value) {
     return result;
 }
 
+std::vector<std::string> toStringVector(JNIEnv* env, jobjectArray values) {
+    std::vector<std::string> result;
+    if (values == nullptr) return result;
+
+    const jsize count = env->GetArrayLength(values);
+    result.reserve(static_cast<size_t>(count));
+    for (jsize index = 0; index < count; ++index) {
+        auto value = static_cast<jstring>(env->GetObjectArrayElement(values, index));
+        result.push_back(toString(env, value));
+        if (value != nullptr) env->DeleteLocalRef(value);
+    }
+    return result;
+}
+
 jstring fromString(JNIEnv* env, const std::string& value) {
     return env->NewStringUTF(value.c_str());
 }
@@ -63,6 +77,70 @@ std::string runtimeLibraryPath(const std::string& javaHome) {
         value += existing;
     }
     return value;
+}
+
+bool prepareRuntime(
+        const std::string& javaPath,
+        const std::string& javaHome,
+        const std::string& workingDirectory,
+        struct stat& javaStat,
+        std::string& ldLibraryPath,
+        std::string& error) {
+    if (javaPath.empty() || javaHome.empty() || workingDirectory.empty()) {
+        error = "executável Java, JAVA_HOME ou diretório de trabalho não informado";
+        return false;
+    }
+
+    if (stat(javaPath.c_str(), &javaStat) != 0) {
+        error = "bin/java não existe: " + errnoMessage("stat");
+        return false;
+    }
+    if (!S_ISREG(javaStat.st_mode)) {
+        error = "bin/java existe mas não é arquivo regular";
+        return false;
+    }
+
+    if (chdir(workingDirectory.c_str()) != 0) {
+        error = errnoMessage("chdir do diretório de trabalho falhou");
+        return false;
+    }
+
+    ldLibraryPath = runtimeLibraryPath(javaHome);
+    if (setenv("JAVA_HOME", javaHome.c_str(), 1) != 0) {
+        error = errnoMessage("setenv JAVA_HOME falhou");
+        return false;
+    }
+    if (setenv("LD_LIBRARY_PATH", ldLibraryPath.c_str(), 1) != 0) {
+        error = errnoMessage("setenv LD_LIBRARY_PATH falhou");
+        return false;
+    }
+    return true;
+}
+
+JliLaunchFn loadJli(const std::string& jliPath, std::string& error) {
+    if (jliPath.empty()) {
+        error = "libjli não informada";
+        return nullptr;
+    }
+
+    dlerror();
+    gJliHandle = dlopen(jliPath.c_str(), RTLD_NOW | RTLD_GLOBAL);
+    if (gJliHandle == nullptr) {
+        const char* dlError = dlerror();
+        error = "dlopen libjli falhou: " +
+            std::string(dlError != nullptr ? dlError : "erro desconhecido");
+        return nullptr;
+    }
+
+    dlerror();
+    auto launch = reinterpret_cast<JliLaunchFn>(dlsym(gJliHandle, "JLI_Launch"));
+    const char* symbolError = dlerror();
+    if (launch == nullptr || symbolError != nullptr) {
+        error = "JLI_Launch não resolvido: " +
+            std::string(symbolError != nullptr ? symbolError : "símbolo ausente");
+        return nullptr;
+    }
+    return launch;
 }
 
 class StdioCapture {
@@ -132,6 +210,17 @@ private:
     std::string error_;
 };
 
+std::vector<char*> buildArgv(std::vector<std::string>& storage, int& argc) {
+    std::vector<char*> argv;
+    argv.reserve(storage.size() + 1);
+    for (std::string& argument : storage) {
+        argv.push_back(argument.data());
+    }
+    argc = static_cast<int>(argv.size());
+    argv.push_back(nullptr);
+    return argv;
+}
+
 } // namespace
 
 extern "C"
@@ -145,7 +234,7 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchJavaVersi
         jstring logPath) {
     const std::string jliPath = toString(env, jliLibraryPath);
     const std::string javaPath = toString(env, javaExecutable);
-    const std::string workDir = toString(env, workingDirectory);
+    const std::string javaHome = toString(env, workingDirectory);
     const std::string outputPath = toString(env, logPath);
 
     std::lock_guard<std::mutex> lock(gJliMutex);
@@ -154,49 +243,16 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchJavaVersi
     }
     gJliLaunchAttempted = true;
 
-    if (jliPath.empty() || javaPath.empty() || workDir.empty()) {
-        return fromString(env, "ERROR|libjli, executável Java ou JAVA_HOME não informado");
-    }
-
     struct stat javaStat {};
-    if (stat(javaPath.c_str(), &javaStat) != 0) {
-        return fromString(env, "ERROR|bin/java não existe: " + errnoMessage("stat"));
-    }
-    if (!S_ISREG(javaStat.st_mode)) {
-        return fromString(env, "ERROR|bin/java existe mas não é arquivo regular");
-    }
-
-    if (chdir(workDir.c_str()) != 0) {
-        return fromString(env, "ERROR|" + errnoMessage("chdir do JAVA_HOME falhou"));
+    std::string ldLibraryPath;
+    std::string error;
+    if (!prepareRuntime(javaPath, javaHome, javaHome, javaStat, ldLibraryPath, error)) {
+        return fromString(env, "ERROR|" + error);
     }
 
-    const std::string ldLibraryPath = runtimeLibraryPath(workDir);
-    if (setenv("JAVA_HOME", workDir.c_str(), 1) != 0) {
-        return fromString(env, "ERROR|" + errnoMessage("setenv JAVA_HOME falhou"));
-    }
-    if (setenv("LD_LIBRARY_PATH", ldLibraryPath.c_str(), 1) != 0) {
-        return fromString(env, "ERROR|" + errnoMessage("setenv LD_LIBRARY_PATH falhou"));
-    }
-
-    dlerror();
-    gJliHandle = dlopen(jliPath.c_str(), RTLD_NOW | RTLD_GLOBAL);
-    if (gJliHandle == nullptr) {
-        const char* error = dlerror();
-        return fromString(
-            env,
-            "ERROR|dlopen libjli falhou: " + std::string(error != nullptr ? error : "erro desconhecido")
-        );
-    }
-
-    dlerror();
-    auto launch = reinterpret_cast<JliLaunchFn>(dlsym(gJliHandle, "JLI_Launch"));
-    const char* symbolError = dlerror();
-    if (launch == nullptr || symbolError != nullptr) {
-        return fromString(
-            env,
-            "ERROR|JLI_Launch não resolvido: " +
-                std::string(symbolError != nullptr ? symbolError : "símbolo ausente")
-        );
+    auto launch = loadJli(jliPath, error);
+    if (launch == nullptr) {
+        return fromString(env, "ERROR|" + error);
     }
 
     StdioCapture capture(outputPath);
@@ -209,24 +265,14 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchJavaVersi
         "-Djava.awt.headless=true",
         "-version"
     };
-
-    // JLI/exec follow the normal C argv contract: argc counts real arguments and
-    // argv[argc] MUST be a null pointer. Alpha10 omitted this sentinel, which can
-    // surface as EFAULT / "Bad address" when the launcher prepares a re-exec.
-    std::vector<char*> argv;
-    argv.reserve(storage.size() + 1);
-    for (std::string& argument : storage) {
-        argv.push_back(argument.data());
-    }
-    const int argc = static_cast<int>(argv.size());
-    argv.push_back(nullptr);
-
+    int argc = 0;
+    auto argv = buildArgv(storage, argc);
     const bool executableBit = access(javaPath.c_str(), X_OK) == 0;
 
-    std::fprintf(stderr, "[Project Astra alpha11] JLI_Launch smoke test\n");
+    std::fprintf(stderr, "[Project Astra alpha12] JLI_Launch JVM smoke test\n");
     std::fprintf(stderr, "libjli=%s\n", jliPath.c_str());
     std::fprintf(stderr, "java=%s\n", javaPath.c_str());
-    std::fprintf(stderr, "JAVA_HOME=%s\n", workDir.c_str());
+    std::fprintf(stderr, "JAVA_HOME=%s\n", javaHome.c_str());
     std::fprintf(stderr, "LD_LIBRARY_PATH=%s\n", ldLibraryPath.c_str());
     std::fprintf(stderr, "java_mode=%04o X_OK=%s\n", javaStat.st_mode & 07777, executableBit ? "yes" : "no");
     std::fprintf(stderr, "argc=%d argv_null_terminated=%s\n\n", argc, argv[argc] == nullptr ? "yes" : "no");
@@ -239,8 +285,8 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchJavaVersi
         nullptr,
         0,
         nullptr,
-        "Project Astra 0.1.0-alpha11",
-        "0.1.0-alpha11",
+        "Project Astra 0.1.0-alpha12",
+        "0.1.0-alpha12",
         "java",
         "java",
         JNI_FALSE,
@@ -254,4 +300,101 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchJavaVersi
         return fromString(env, "OK|JLI_Launch executou Java -version e retornou 0");
     }
     return fromString(env, "ERROR|JLI_Launch retornou código " + std::to_string(result));
+}
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchMinecraftPlan(
+        JNIEnv* env,
+        jobject,
+        jstring jliLibraryPath,
+        jstring javaExecutable,
+        jstring javaHomePath,
+        jstring workingDirectory,
+        jstring logPath,
+        jobjectArray jvmArguments,
+        jstring mainClassValue,
+        jobjectArray gameArguments) {
+    const std::string jliPath = toString(env, jliLibraryPath);
+    const std::string javaPath = toString(env, javaExecutable);
+    const std::string javaHome = toString(env, javaHomePath);
+    const std::string workDir = toString(env, workingDirectory);
+    const std::string outputPath = toString(env, logPath);
+    const std::string mainClass = toString(env, mainClassValue);
+    const std::vector<std::string> jvmArgs = toStringVector(env, jvmArguments);
+    const std::vector<std::string> gameArgs = toStringVector(env, gameArguments);
+
+    std::lock_guard<std::mutex> lock(gJliMutex);
+    if (gJliLaunchAttempted) {
+        return fromString(env, "ERROR|uma JVM já foi iniciada/tentada neste processo; reabra o Bridge test antes do Minecraft boot");
+    }
+    gJliLaunchAttempted = true;
+
+    if (mainClass.empty()) {
+        return fromString(env, "ERROR|mainClass do Minecraft está vazia");
+    }
+
+    struct stat javaStat {};
+    std::string ldLibraryPath;
+    std::string error;
+    if (!prepareRuntime(javaPath, javaHome, workDir, javaStat, ldLibraryPath, error)) {
+        return fromString(env, "ERROR|" + error);
+    }
+
+    auto launch = loadJli(jliPath, error);
+    if (launch == nullptr) {
+        return fromString(env, "ERROR|" + error);
+    }
+
+    StdioCapture capture(outputPath);
+    if (!capture.active()) {
+        return fromString(env, "ERROR|não foi possível capturar stdout/stderr: " + capture.error());
+    }
+
+    std::vector<std::string> storage;
+    storage.reserve(1 + jvmArgs.size() + 1 + gameArgs.size());
+    storage.push_back(javaPath);
+    storage.insert(storage.end(), jvmArgs.begin(), jvmArgs.end());
+    storage.push_back(mainClass);
+    storage.insert(storage.end(), gameArgs.begin(), gameArgs.end());
+
+    int argc = 0;
+    auto argv = buildArgv(storage, argc);
+    const bool executableBit = access(javaPath.c_str(), X_OK) == 0;
+
+    std::fprintf(stderr, "[Project Astra alpha12] Minecraft LaunchPlan handoff\n");
+    std::fprintf(stderr, "libjli=%s\n", jliPath.c_str());
+    std::fprintf(stderr, "java=%s\n", javaPath.c_str());
+    std::fprintf(stderr, "JAVA_HOME=%s\n", javaHome.c_str());
+    std::fprintf(stderr, "working_directory=%s\n", workDir.c_str());
+    std::fprintf(stderr, "main_class=%s\n", mainClass.c_str());
+    std::fprintf(stderr, "jvm_args=%zu game_args=%zu\n", jvmArgs.size(), gameArgs.size());
+    std::fprintf(stderr, "LD_LIBRARY_PATH=%s\n", ldLibraryPath.c_str());
+    std::fprintf(stderr, "java_mode=%04o X_OK=%s\n", javaStat.st_mode & 07777, executableBit ? "yes" : "no");
+    std::fprintf(stderr, "argc=%d argv_null_terminated=%s\n", argc, argv[argc] == nullptr ? "yes" : "no");
+    std::fprintf(stderr, "Argument values intentionally omitted from this header to avoid exposing account tokens.\n\n");
+    std::fflush(stderr);
+
+    const int result = launch(
+        argc,
+        argv.data(),
+        0,
+        nullptr,
+        0,
+        nullptr,
+        "Project Astra 0.1.0-alpha12",
+        "0.1.0-alpha12",
+        "java",
+        "java",
+        JNI_FALSE,
+        JNI_FALSE,
+        JNI_FALSE,
+        0
+    );
+
+    capture.restore();
+    if (result == 0) {
+        return fromString(env, "OK|Minecraft main class retornou 0");
+    }
+    return fromString(env, "ERROR|Minecraft/JLI retornou código " + std::to_string(result));
 }
