@@ -18,7 +18,7 @@ import java.io.File
 
 object LaunchPlanBuilder {
     private const val LAUNCHER_NAME = "ProjectAstra"
-    private const val LAUNCHER_VERSION = "0.1.0-alpha14"
+    private const val LAUNCHER_VERSION = "0.1.0-alpha18"
 
     fun build(
         context: Context,
@@ -78,6 +78,8 @@ object LaunchPlanBuilder {
         val jvmArguments = buildList {
             add("-Xms512M")
             add("-Xmx${instance.memoryMb.coerceAtLeast(768)}M")
+            add("-Dorg.lwjgl.librarypath=${lwjglNatives.directoryPath}")
+            add("-Dorg.lwjgl.system.allocator=system")
 
             val metadataJvm = metadata.optJSONObject("arguments")?.optJSONArray("jvm")
             if (metadataJvm != null) {
@@ -127,7 +129,7 @@ object LaunchPlanBuilder {
         }
 
         val warnings = buildList {
-            add("JLI + MobileGlues + LWJGL Android JARs/natives + ANativeWindow preparados; callbacks GLFW ainda em validação.")
+            add("JLI + MobileGlues + LWJGL Android + pojavexec Astra preparados; input GLFW ainda é mínimo nesta alpha.")
             if (account.type == AccountType.OFFLINE) {
                 add("Conta offline: válida para single-player/LAN e servidores que aceitam identidades offline.")
             }
