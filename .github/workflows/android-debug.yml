@@ -30,15 +30,6 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Inspect exact LWJGL 3.3.3 JNI surface
-        run: |
-          URL="https://raw.githubusercontent.com/AngelAuraMC/Amethyst-Android/360d708262ff703d9b52782d20cd348410a33df5/app_pojavlauncher/src/main/assets/components/lwjgl3/3.3.3/lwjgl-3.3.3-merged-modules.jar"
-          curl -fL "$URL" -o "$RUNNER_TEMP/lwjgl-android.jar"
-          echo '===== CallbackBridge ====='
-          javap -classpath "$RUNNER_TEMP/lwjgl-android.jar" -p -s org.lwjgl.glfw.CallbackBridge
-          echo '===== GLFW native declarations ====='
-          javap -classpath "$RUNNER_TEMP/lwjgl-android.jar" -p -s org.lwjgl.glfw.GLFW | sed -n '/ native /,+1p'
-
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
