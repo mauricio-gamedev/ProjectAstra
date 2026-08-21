@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "io.github.astromg01.launcher"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "io.github.astromg01.launcher"
