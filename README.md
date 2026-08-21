@@ -2,7 +2,7 @@
 
 Experimental Minecraft: Java Edition launcher for Android.
 
-> **Status:** `0.1.0-alpha09`. The app builds, manages offline accounts and instances, installs official Minecraft files and Android Java runtimes, assembles a validated Minecraft launch plan, and has passed on-device ANativeWindow + MobileGlues/EGL/OpenGL presentation. Alpha09 adds the first isolated OpenJDK `JLI_Launch` execution test.
+> **Status:** `0.1.0-alpha10`. The app builds, manages offline accounts and instances, installs official Minecraft files and Android Java runtimes, assembles a validated Minecraft launch plan, and has passed on-device ANativeWindow + MobileGlues/EGL/OpenGL presentation. Alpha10 adds a persistent JVM flight recorder around the isolated OpenJDK `JLI_Launch` test.
 
 ## Current milestone
 
@@ -39,6 +39,8 @@ The current alpha establishes:
 - MobileGlues EGL window/context bridge and real `eglSwapBuffers`
 - isolated Android `:game` process for JVM/native execution
 - OpenJDK `JLI_Launch` smoke-test bridge with stdout/stderr capture
+- persistent cross-process JVM report/flight recorder when `:game` exits before UI reporting
+- automatic report dialog in the launcher process after the game process returns
 - optional stable development signing through GitHub Actions secrets
 - models for renderers and performance modes
 
@@ -55,7 +57,8 @@ app
 │   ├── DeviceProfiler
 │   └── LauncherModels
 ├── game
-│   └── GameSurfaceActivity
+│   ├── GameSurfaceActivity
+│   └── JvmSmokeReportStore
 ├── install
 │   ├── InstallModels
 │   └── VersionInstaller
@@ -146,7 +149,9 @@ Once a Minecraft version and its required Java runtime are installed, Astra can 
 - Android LWJGL compatibility classpath
 - MobileGlues renderer environment
 
-The alpha09 device test starts OpenJDK through the public `JLI_Launch` interface inside the isolated `:game` process. The next launch milestone is the GLFW/LWJGL native-window callback layer followed by execution of the real Minecraft main class.
+The alpha10 device test starts OpenJDK through the public `JLI_Launch` interface inside the isolated `:game` process. Before the call, Astra persists a `STARTED` marker and redirects stdout/stderr to app-private storage. If `JLI_Launch` returns, Astra records its result. If the game process exits first, the launcher process reads the marker and captured OpenJDK output when it resumes, so a clean launcher exit and a native crash are no longer visually indistinguishable.
+
+The next launch milestone is the GLFW/LWJGL native-window callback layer followed by execution of the real Minecraft main class.
 
 ## APK signing
 
@@ -165,7 +170,7 @@ Run **Actions → Android Debug APK → Run workflow**. The workflow uploads `ap
 
 ## Next milestone
 
-1. validate alpha09 `JLI_Launch` on a real Android device
+1. validate alpha10 persistent `JLI_Launch` report on a real Android device
 2. implement Android GLFW/LWJGL native-window callbacks
 3. hand the existing ANativeWindow/MobileGlues path to the LWJGL layer
 4. execute the real Minecraft main class through the launch plan
