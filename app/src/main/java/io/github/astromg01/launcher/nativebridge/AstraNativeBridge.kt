@@ -15,6 +15,12 @@ object AstraNativeBridge {
 
     external fun surfaceStatus(): String
 
+    external fun startGraphicsTest(rendererLibraryPath: String): String
+
+    external fun graphicsStatus(): String
+
+    external fun shutdownGraphics()
+
     external fun releaseSurface()
 
     fun probe(libraryPath: String, requiredSymbol: String = ""): NativeProbeResult {
@@ -39,6 +45,14 @@ object AstraNativeBridge {
 
     fun surfaceProbe(): NativeProbeResult = parseNativeResult {
         surfaceStatus()
+    }
+
+    fun startGraphics(rendererLibraryPath: String): NativeProbeResult = parseNativeResult {
+        startGraphicsTest(rendererLibraryPath)
+    }
+
+    fun graphicsProbe(): NativeProbeResult = parseNativeResult {
+        graphicsStatus()
     }
 
     private inline fun parseNativeResult(block: () -> String): NativeProbeResult {
