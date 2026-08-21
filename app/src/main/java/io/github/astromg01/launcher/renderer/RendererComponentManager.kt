@@ -2,7 +2,6 @@ package io.github.astromg01.launcher.renderer
 
 import android.content.Context
 import android.os.Build
-import io.github.astromg01.launcher.nativebridge.AstraNativeBridge
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.File
@@ -31,7 +30,7 @@ object RendererComponentManager {
         return runCatching {
             val json = JSONObject(marker.readText())
             val library = File(json.getString("libraryPath"))
-            if (!library.isFile) return null
+            if (!library.isFile || !looksLikeElf(library)) return null
             InstalledRenderer(
                 id = "mobileglues",
                 version = json.getString("version"),
@@ -69,8 +68,8 @@ object RendererComponentManager {
             onProgress(RendererProgress("Extraindo MobileGlues", detail = abi))
             extractAbiLibraries(download, abi, staging)
             val mobileGlues = File(staging, "libmobileglues.so")
-            if (!mobileGlues.isFile) {
-                error("O APK oficial do MobileGlues não contém libmobileglues.so para $abi.")
+            if (!mobileGlues.isFile || !looksLikeElf(mobileGlues)) {
+                error("O APK oficial do MobileGlues não contém uma libmobileglues.so válida para $abi.")
             }
 
             finalDir.deleteRecursively()
@@ -80,13 +79,10 @@ object RendererComponentManager {
                 staging.deleteRecursively()
             }
 
+            // O carregamento real do renderer depende de todas as .so irmãs e da
+            // superfície EGL. Nesta etapa validamos o APK, a ABI e o ELF; o dlopen
+            // completo acontece junto ao bootstrap gráfico, evitando falso negativo.
             val installedLibrary = File(finalDir, "libmobileglues.so")
-            val probe = AstraNativeBridge.probe(installedLibrary.absolutePath)
-            if (!probe.success) {
-                finalDir.deleteRecursively()
-                error("MobileGlues foi extraído, mas não carregou: ${probe.detail}")
-            }
-
             val installed = InstalledRenderer(
                 id = "mobileglues",
                 version = MOBILEGLUES_VERSION,
@@ -117,10 +113,12 @@ object RendererComponentManager {
     fun environment(context: Context, renderer: InstalledRenderer): Map<String, String> {
         val mgDir = File(context.filesDir, "MobileGlues").apply { mkdirs() }
         return linkedMapOf(
-            "POJAV_RENDERER" to "opengles_mobileglues",
+            "POJAV_RENDERER" to "opengles3",
             "POJAVEXEC_EGL" to renderer.libraryPath,
+            "LIBGL_EGL" to renderer.libraryPath,
             "MG_DIR_PATH" to mgDir.absolutePath,
-            "LIBGL_ES" to "2",
+            "MG_COUNT_LAUNCH" to "1",
+            "LIBGL_ES" to "3",
             "LIBGL_MIPMAP" to "3",
             "LIBGL_NOERROR" to "1",
             "LIBGL_NORMALIZE" to "1",
@@ -229,6 +227,18 @@ object RendererComponentManager {
 
     private fun preferredAbi(): String? =
         Build.SUPPORTED_ABIS.firstOrNull { it in setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") }
+
+    private fun looksLikeElf(file: File): Boolean {
+        if (!file.isFile || file.length() < 4L) return false
+        FileInputStream(file).use { input ->
+            val magic = ByteArray(4)
+            if (input.read(magic) != 4) return false
+            return magic[0] == 0x7f.toByte() &&
+                magic[1] == 'E'.code.toByte() &&
+                magic[2] == 'L'.code.toByte() &&
+                magic[3] == 'F'.code.toByte()
+        }
+    }
 
     private fun verifySha256(file: File, expected: String): Boolean {
         if (!file.isFile || file.length() <= 0L) return false
