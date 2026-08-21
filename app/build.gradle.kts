@@ -3,6 +3,17 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val astraSigningFile = System.getenv("ASTRA_DEV_KEYSTORE_FILE")
+val astraSigningStorePassword = System.getenv("ASTRA_DEV_KEYSTORE_PASSWORD")
+val astraSigningAlias = System.getenv("ASTRA_DEV_KEY_ALIAS")
+val astraSigningKeyPassword = System.getenv("ASTRA_DEV_KEY_PASSWORD")
+val hasAstraSigning = listOf(
+    astraSigningFile,
+    astraSigningStorePassword,
+    astraSigningAlias,
+    astraSigningKeyPassword
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "io.github.astromg01.launcher"
     compileSdk = 36
@@ -11,11 +22,31 @@ android {
         applicationId = "io.github.astromg01.launcher"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-alpha01"
+        versionCode = 2
+        versionName = "0.1.0-alpha02"
+    }
+
+    signingConfigs {
+        if (hasAstraSigning) {
+            create("astraDev") {
+                storeFile = file(astraSigningFile!!)
+                storePassword = astraSigningStorePassword
+                keyAlias = astraSigningAlias
+                keyPassword = astraSigningKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
+            }
+        }
     }
 
     buildTypes {
+        debug {
+            if (hasAstraSigning) {
+                signingConfig = signingConfigs.getByName("astraDev")
+            }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
