@@ -10,6 +10,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      ASTRA_DEV_KEYSTORE_BASE64: ${{ secrets.ASTRA_DEV_KEYSTORE_BASE64 }}
+      ASTRA_DEV_KEYSTORE_PASSWORD: ${{ secrets.ASTRA_DEV_KEYSTORE_PASSWORD }}
+      ASTRA_DEV_KEY_ALIAS: ${{ secrets.ASTRA_DEV_KEY_ALIAS }}
+      ASTRA_DEV_KEY_PASSWORD: ${{ secrets.ASTRA_DEV_KEY_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -34,7 +39,14 @@ jobs:
         with:
           gradle-version: "9.4.1"
 
+      - name: Prepare stable signing key
+        if: ${{ env.ASTRA_DEV_KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "$ASTRA_DEV_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/astra-dev.jks"
+
       - name: Build debug APK
+        env:
+          ASTRA_DEV_KEYSTORE_FILE: ${{ runner.temp }}/astra-dev.jks
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Upload APK
