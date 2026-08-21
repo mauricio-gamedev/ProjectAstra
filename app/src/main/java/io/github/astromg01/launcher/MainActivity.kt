@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.astromg01.launcher.game.GameSurfaceActivity
 import io.github.astromg01.launcher.game.JvmSmokeReportStore
+import io.github.astromg01.launcher.game.MinecraftBootReportStore
 import io.github.astromg01.launcher.ui.AstraApp
 import io.github.astromg01.launcher.ui.AstraTheme
 
@@ -53,7 +54,11 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         mainHandler.removeCallbacksAndMessages(null)
-        mainHandler.postDelayed({ showPendingJvmReport() }, 350L)
+        mainHandler.postDelayed({
+            if (!showPendingMinecraftReport()) {
+                showPendingJvmReport()
+            }
+        }, 350L)
     }
 
     override fun onDestroy() {
@@ -61,9 +66,49 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun showPendingJvmReport() {
-        if (isFinishing || isDestroyed) return
-        val report = JvmSmokeReportStore.consume(this) ?: return
+    private fun showPendingMinecraftReport(): Boolean {
+        if (isFinishing || isDestroyed) return false
+        val report = MinecraftBootReportStore.consume(this) ?: return false
+
+        val reportText = buildString {
+            append("Project Astra • Minecraft Boot Flight Recorder\n\n")
+            append(report.summary)
+            append("\nStatus: ${report.status}")
+            if (report.instanceId.isNotBlank()) append("\nInstância: ${report.instanceId}")
+            if (report.minecraftVersion.isNotBlank()) append("\nMinecraft: ${report.minecraftVersion}")
+            if (report.javaMajor > 0) append("\nJava: ${report.javaMajor}")
+            if (report.mainClass.isNotBlank()) append("\nMain class: ${report.mainClass}")
+            if (report.detail.isNotBlank()) append("\nDetalhe: ${report.detail}")
+            append("\nSinais de Minecraft/LWJGL no log: ${if (report.likelyReachedMinecraft) "SIM ✓" else "NÃO"}")
+            append("\n\n--- stdout/stderr Minecraft ---\n")
+            append(report.log.ifBlank { "(nenhuma saída foi capturada)" })
+            append("\n\n")
+            append(
+                when {
+                    report.status == "RETURNED_OK" ->
+                        "Resultado: a main class retornou normalmente."
+                    report.status == "STARTED" && report.likelyReachedMinecraft ->
+                        "Resultado útil: o JLI entrou na main class real e chegou ao código Minecraft/LWJGL antes do processo :game encerrar."
+                    report.status == "STARTED" ->
+                        "O processo :game encerrou dentro do boot real. O log acima define o próximo ponto de integração."
+                    report.status == "PRELAUNCH_ERROR" ->
+                        "O boot não chegou à main class; corrija o preflight indicado acima."
+                    else -> "Use este relatório para a próxima correção do boot."
+                }
+            )
+        }
+
+        showReportDialog(
+            title = "Minecraft boot • resultado",
+            clipboardLabel = "Project Astra Minecraft boot report",
+            reportText = reportText
+        )
+        return true
+    }
+
+    private fun showPendingJvmReport(): Boolean {
+        if (isFinishing || isDestroyed) return false
+        val report = JvmSmokeReportStore.consume(this) ?: return false
 
         val reportText = buildString {
             append("Project Astra • JVM Flight Recorder\n\n")
@@ -88,6 +133,15 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        showReportDialog(
+            title = "JVM test • resultado",
+            clipboardLabel = "Project Astra JVM report",
+            reportText = reportText
+        )
+        return true
+    }
+
+    private fun showReportDialog(title: String, clipboardLabel: String, reportText: String) {
         val textView = TextView(this).apply {
             text = reportText
             typeface = Typeface.MONOSPACE
@@ -98,12 +152,12 @@ class MainActivity : ComponentActivity() {
         }
 
         AlertDialog.Builder(this)
-            .setTitle("JVM test • resultado")
+            .setTitle(title)
             .setView(textView)
             .setPositiveButton("OK", null)
             .setNeutralButton("Copiar") { _, _ ->
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("Project Astra JVM report", reportText))
+                clipboard.setPrimaryClip(ClipData.newPlainText(clipboardLabel, reportText))
             }
             .show()
     }
