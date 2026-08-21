@@ -2,7 +2,7 @@
 
 Experimental Minecraft: Java Edition launcher for Android.
 
-> **Status:** `0.1.0-alpha04`. The app builds, manages offline accounts and instances, installs official Minecraft files, installs Android Java runtimes, and can assemble a validated Minecraft launch plan. Actual game execution remains blocked until the Android LWJGL/renderer/native layer is integrated.
+> **Status:** `0.1.0-alpha09`. The app builds, manages offline accounts and instances, installs official Minecraft files and Android Java runtimes, assembles a validated Minecraft launch plan, and has passed on-device ANativeWindow + MobileGlues/EGL/OpenGL presentation. Alpha09 adds the first isolated OpenJDK `JLI_Launch` execution test.
 
 ## Current milestone
 
@@ -33,6 +33,12 @@ The current alpha establishes:
 - launch-plan builder for classpath, JVM args, game args, placeholders and offline accounts
 - Mojang metadata rule evaluation for OS/features
 - per-instance game/native directories and environment plan
+- Android LWJGL compatibility component preparation
+- MobileGlues 2.0.0 runtime component preparation
+- Android Surface → `ANativeWindow` bridge
+- MobileGlues EGL window/context bridge and real `eglSwapBuffers`
+- isolated Android `:game` process for JVM/native execution
+- OpenJDK `JLI_Launch` smoke-test bridge with stdout/stderr capture
 - optional stable development signing through GitHub Actions secrets
 - models for renderers and performance modes
 
@@ -48,6 +54,8 @@ app
 ├── core
 │   ├── DeviceProfiler
 │   └── LauncherModels
+├── game
+│   └── GameSurfaceActivity
 ├── install
 │   ├── InstallModels
 │   └── VersionInstaller
@@ -58,6 +66,13 @@ app
 │   ├── LaunchModels
 │   ├── LaunchPlanBuilder
 │   └── MinecraftRuleEvaluator
+├── lwjgl
+│   └── AndroidLwjglManager
+├── nativebridge
+│   ├── AstraNativeBridge
+│   └── NativeRuntimeValidator
+├── renderer
+│   └── RendererComponentManager
 ├── runtime
 │   ├── RuntimeCatalog
 │   ├── RuntimeInstaller
@@ -70,6 +85,8 @@ app
     ├── AstraApp
     └── AstraTheme
 ```
+
+Native bridge sources currently include the graphics bridge and a separate JLI launcher bridge so JVM work does not require rewriting the already validated graphics path.
 
 Planned modules:
 
@@ -114,7 +131,7 @@ The runtime manager detects the Android ABI, selects the Java major requested by
 
 Runtime packages are external third-party components and are not committed to this repository. Their upstream licensing and notices apply independently.
 
-## Launch-plan builder
+## Launch pipeline
 
 Once a Minecraft version and its required Java runtime are installed, Astra can prepare a launch plan containing:
 
@@ -126,8 +143,10 @@ Once a Minecraft version and its required Java runtime are installed, Astra can 
 - account/version/assets placeholders
 - memory allocation from the instance profile
 - renderer/performance-mode environment hints
+- Android LWJGL compatibility classpath
+- MobileGlues renderer environment
 
-The plan is intentionally not executed yet. Desktop Mojang native classifiers are not treated as Android natives. The next runtime milestone will inject the Android LWJGL and renderer/native compatibility layer before JVM execution is enabled.
+The alpha09 device test starts OpenJDK through the public `JLI_Launch` interface inside the isolated `:game` process. The next launch milestone is the GLFW/LWJGL native-window callback layer followed by execution of the real Minecraft main class.
 
 ## APK signing
 
@@ -146,14 +165,18 @@ Run **Actions → Android Debug APK → Run workflow**. The workflow uploads `ap
 
 ## Next milestone
 
-1. Android LWJGL native layer
-2. renderer abstraction and first MobileGlues integration
-3. native/library environment injection into the launch plan
-4. JVM process bootstrap and log capture
-5. first real Minecraft window/boot
+1. validate alpha09 `JLI_Launch` on a real Android device
+2. implement Android GLFW/LWJGL native-window callbacks
+3. hand the existing ANativeWindow/MobileGlues path to the LWJGL layer
+4. execute the real Minecraft main class through the launch plan
+5. add touch/input callbacks and lifecycle handling
 6. Microsoft OAuth provider
 7. performance/renderer auto-selection
 
-## Licensing
+## Copyright and license
 
-The launcher-owned code in these milestones is original project code. Minecraft files and Java runtimes are downloaded at runtime and are not vendored into the repository. Any renderer, LWJGL compatibility layer, runtime package, or other third-party component must keep its applicable license and notices.
+Copyright © 2026 **mauricio-gamedev**. All rights reserved.
+
+Project Astra launcher-owned source code, UI, documentation, branding, build configuration, and other original project material are proprietary unless explicitly stated otherwise. Public repository visibility does not grant a general license to copy, modify, redistribute, commercialize, rehost, or create derivative works.
+
+See [`LICENSE`](LICENSE) and [`COPYRIGHT.md`](COPYRIGHT.md) for the Project Astra terms. Third-party components remain subject to their own copyright and license requirements and are not claimed as Project Astra property. See [`NOTICE.md`](NOTICE.md) for third-party/runtime notices.
