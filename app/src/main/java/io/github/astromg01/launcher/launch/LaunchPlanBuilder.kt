@@ -4,7 +4,10 @@ import android.content.Context
 import io.github.astromg01.launcher.account.AccountProfile
 import io.github.astromg01.launcher.account.AccountType
 import io.github.astromg01.launcher.core.MinecraftInstance
+import io.github.astromg01.launcher.core.RendererKind
 import io.github.astromg01.launcher.install.VersionInstaller
+import io.github.astromg01.launcher.nativebridge.NativeRuntimeValidator
+import io.github.astromg01.launcher.renderer.RendererComponentManager
 import io.github.astromg01.launcher.runtime.RuntimeInstaller
 import org.json.JSONArray
 import org.json.JSONObject
@@ -12,7 +15,7 @@ import java.io.File
 
 object LaunchPlanBuilder {
     private const val LAUNCHER_NAME = "ProjectAstra"
-    private const val LAUNCHER_VERSION = "0.1.0-alpha04"
+    private const val LAUNCHER_VERSION = "0.1.0-alpha06"
 
     fun build(
         context: Context,
@@ -24,6 +27,15 @@ object LaunchPlanBuilder {
 
         val runtime = RuntimeInstaller.installedRuntime(context, installedInfo.javaMajorVersion)
             ?: error("Java ${installedInfo.javaMajorVersion} ainda não está instalado.")
+
+        val renderer = when (instance.renderer) {
+            RendererKind.AUTO,
+            RendererKind.MOBILEGLUES -> RendererComponentManager.installedMobileGlues(context)
+                ?: error("MobileGlues ainda não está preparado para esta instância.")
+            RendererKind.GL4ES -> error("GL4ES ainda não está integrado ao launch plan.")
+            RendererKind.ANGLE -> error("ANGLE ainda não está integrado ao launch plan.")
+            RendererKind.ZINK -> error("Mesa/Zink ainda não está integrado ao launch plan.")
+        }
 
         val root = File(context.filesDir, "minecraft")
         val versionDir = File(root, "versions/${instance.minecraftVersion}")
@@ -37,6 +49,7 @@ object LaunchPlanBuilder {
         val nativesDir = File(root, "instances/${instance.id}/natives").apply { mkdirs() }
         val assetsDir = File(root, "assets").apply { mkdirs() }
         val librariesDir = File(root, "libraries").apply { mkdirs() }
+        val nativeSearchPath = buildNativeSearchPath(context, nativesDir, renderer.directoryPath)
 
         val classpath = resolveClasspath(metadata, librariesDir, clientJar)
         val classpathString = classpath.joinToString(File.pathSeparator)
@@ -45,7 +58,7 @@ object LaunchPlanBuilder {
             account = account,
             metadata = metadata,
             gameDir = gameDir,
-            nativesDir = nativesDir,
+            nativesDirectoryValue = nativeSearchPath,
             assetsDir = assetsDir,
             librariesDir = librariesDir,
             classpath = classpathString,
@@ -61,7 +74,7 @@ object LaunchPlanBuilder {
                 addAll(resolveArgumentArray(metadataJvm, placeholders))
             } else {
                 // Legacy metadata predates the explicit JVM argument section.
-                add("-Djava.library.path=${nativesDir.absolutePath}")
+                add("-Djava.library.path=$nativeSearchPath")
                 add("-cp")
                 add(classpathString)
             }
@@ -80,8 +93,24 @@ object LaunchPlanBuilder {
             placeholders
         )
 
+        val nativeEnvironment = NativeRuntimeValidator.buildEnvironment(context, runtime).toMutableMap()
+        val rendererEnvironment = RendererComponentManager.environment(context, renderer)
+        val existingLd = nativeEnvironment["LD_LIBRARY_PATH"].orEmpty()
+        nativeEnvironment["LD_LIBRARY_PATH"] = listOf(renderer.directoryPath, existingLd)
+            .filter { it.isNotBlank() }
+            .joinToString(File.pathSeparator)
+
+        val environment = linkedMapOf<String, String>().apply {
+            putAll(nativeEnvironment)
+            putAll(rendererEnvironment)
+            put("ASTRA_GAME_DIR", gameDir.absolutePath)
+            put("ASTRA_RENDERER", instance.renderer.name)
+            put("ASTRA_RENDERER_RESOLVED", renderer.id)
+            put("ASTRA_PERFORMANCE_MODE", instance.performanceMode.name)
+        }
+
         val warnings = buildList {
-            add("Android LWJGL/render natives ainda não foram injetados no plano.")
+            add("JLI + MobileGlues preparados; substituição LWJGL Android ainda pendente.")
             if (account.type == AccountType.OFFLINE) {
                 add("Conta offline: válida para single-player/LAN e servidores que aceitam identidades offline.")
             }
@@ -100,16 +129,22 @@ object LaunchPlanBuilder {
             classpath = classpath.map(File::getAbsolutePath),
             jvmArguments = jvmArguments,
             gameArguments = gameArguments,
-            environment = mapOf(
-                "HOME" to context.filesDir.absolutePath,
-                "JAVA_HOME" to runtime.homePath,
-                "ASTRA_GAME_DIR" to gameDir.absolutePath,
-                "ASTRA_RENDERER" to instance.renderer.name,
-                "ASTRA_PERFORMANCE_MODE" to instance.performanceMode.name
-            ),
+            environment = environment,
             warnings = warnings
         )
     }
+
+    private fun buildNativeSearchPath(
+        context: Context,
+        nativesDir: File,
+        rendererDirectory: String
+    ): String = listOf(
+        nativesDir.absolutePath,
+        rendererDirectory,
+        context.applicationInfo.nativeLibraryDir.orEmpty()
+    ).filter { it.isNotBlank() }
+        .distinct()
+        .joinToString(File.pathSeparator)
 
     private fun resolveClasspath(
         metadata: JSONObject,
@@ -174,7 +209,7 @@ object LaunchPlanBuilder {
         account: AccountProfile,
         metadata: JSONObject,
         gameDir: File,
-        nativesDir: File,
+        nativesDirectoryValue: String,
         assetsDir: File,
         librariesDir: File,
         classpath: String,
@@ -203,7 +238,7 @@ object LaunchPlanBuilder {
             "${'$'}{user_type}" to if (account.type == AccountType.OFFLINE) "legacy" else "msa",
             "${'$'}{user_properties}" to "{}",
             "${'$'}{version_type}" to versionType,
-            "${'$'}{natives_directory}" to nativesDir.absolutePath,
+            "${'$'}{natives_directory}" to nativesDirectoryValue,
             "${'$'}{launcher_name}" to LAUNCHER_NAME,
             "${'$'}{launcher_version}" to LAUNCHER_VERSION,
             "${'$'}{classpath}" to classpath,
