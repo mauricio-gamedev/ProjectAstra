@@ -19,7 +19,7 @@ object RendererComponentManager {
     private const val MOBILEGLUES_APK_SHA256 =
         "a7e1eb29731fdece7ab3af7fb00692b856f1808a7544436e7b3eb6c08355581a"
     private const val MAX_DOWNLOAD_ATTEMPTS = 3
-    private const val USER_AGENT = "ProjectAstra/0.1.0-alpha06"
+    private const val USER_AGENT = "ProjectAstra/0.1.0-alpha08"
 
     fun installedMobileGlues(context: Context): InstalledRenderer? {
         val abi = preferredAbi() ?: return null
@@ -118,6 +118,9 @@ object RendererComponentManager {
             "LIBGL_EGL" to renderer.libraryPath,
             "MG_DIR_PATH" to mgDir.absolutePath,
             "MG_COUNT_LAUNCH" to "1",
+            // MobileGlues is the selected renderer in this provider. Keep its backend
+            // deterministic on the system GLES/EGL driver; ANGLE gets its own provider later.
+            "MG_ANGLE_DIR" to "",
             "LIBGL_ES" to "3",
             "LIBGL_MIPMAP" to "3",
             "LIBGL_NOERROR" to "1",
