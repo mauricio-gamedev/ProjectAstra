@@ -31,7 +31,7 @@ class MainActivity : ComponentActivity() {
                             .align(Alignment.BottomEnd)
                             .padding(end = 14.dp, bottom = 94.dp)
                     ) {
-                        Text("Graphics test")
+                        Text("Bridge test")
                     }
                 }
             }
