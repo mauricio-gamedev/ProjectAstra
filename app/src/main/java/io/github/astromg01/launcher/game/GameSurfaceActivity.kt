@@ -13,9 +13,14 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.TextView
 import io.github.astromg01.launcher.nativebridge.AstraNativeBridge
+import io.github.astromg01.launcher.renderer.RendererComponentManager
 
 class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
     private lateinit var statusView: TextView
+    private var surfaceAttached = false
+    private var graphicsStarted = false
+    private var lastWidth = 0
+    private var lastHeight = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,10 +50,10 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
         )
 
         statusView = TextView(this).apply {
-            text = "Project Astra • Surface Test\nAguardando ANativeWindow…"
+            text = "Project Astra • EGL / MobileGlues Test\nAguardando ANativeWindow…"
             setTextColor(Color.WHITE)
-            setBackgroundColor(0xB3000000.toInt())
-            textSize = 16f
+            setBackgroundColor(0xC0000000.toInt())
+            textSize = 14f
             setPadding(dp(14), dp(10), dp(14), dp(10))
         }
         root.addView(
@@ -81,29 +86,95 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        attach(holder)
+        val result = AstraNativeBridge.attach(holder.surface)
+        surfaceAttached = result.success
+        graphicsStarted = false
+        statusView.text = if (result.success) {
+            "ANativeWindow pronta ✓\n${result.detail}\nAguardando geometria EGL…"
+        } else {
+            "Falha no bridge de Surface\n${result.detail}"
+        }
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        attach(holder)
+        if (!surfaceAttached) {
+            val attach = AstraNativeBridge.attach(holder.surface)
+            surfaceAttached = attach.success
+            if (!attach.success) {
+                statusView.text = "Falha no bridge de Surface\n${attach.detail}"
+                return
+            }
+        }
+
+        if (graphicsStarted && width == lastWidth && height == lastHeight) return
+        if (graphicsStarted) {
+            AstraNativeBridge.shutdownGraphics()
+            graphicsStarted = false
+        }
+
+        lastWidth = width
+        lastHeight = height
+        runGraphicsTest()
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         AstraNativeBridge.releaseSurface()
-        statusView.text = "Surface Android destruída • bridge liberada"
+        surfaceAttached = false
+        graphicsStarted = false
+        statusView.text = "Surface Android destruída • EGL e bridge liberados"
     }
 
     override fun onDestroy() {
         AstraNativeBridge.releaseSurface()
+        surfaceAttached = false
+        graphicsStarted = false
         super.onDestroy()
     }
 
-    private fun attach(holder: SurfaceHolder) {
-        val result = AstraNativeBridge.attach(holder.surface)
+    private fun runGraphicsTest() {
+        val renderer = RendererComponentManager.installedMobileGlues(this)
+        if (renderer == null) {
+            statusView.text = buildString {
+                append("ANativeWindow pronta ✓\n")
+                append(AstraNativeBridge.surfaceProbe().detail)
+                append("\n\nMobileGlues ainda não está instalado.\n")
+                append("Prepare o plano de uma instância primeiro.")
+            }
+            return
+        }
+
+        val environment = RendererComponentManager.environment(this, renderer)
+        val envFailure = environment.entries.firstOrNull { (key, value) ->
+            AstraNativeBridge.setEnvironment(key, value) != 0
+        }
+        if (envFailure != null) {
+            statusView.text = "Falha ao configurar ambiente do renderer\n${envFailure.key}"
+            return
+        }
+
+        statusView.text = buildString {
+            append("ANativeWindow pronta ✓\n")
+            append(AstraNativeBridge.surfaceProbe().detail)
+            append("\nCarregando MobileGlues ${renderer.version} + EGL…")
+        }
+
+        val result = AstraNativeBridge.startGraphics(renderer.libraryPath)
+        graphicsStarted = result.success
         statusView.text = if (result.success) {
-            "Surface nativa pronta ✓\n${result.detail}\n\nPróxima etapa: EGL + callbacks LWJGL."
+            buildString {
+                append("Project Astra • Graphics Bridge ✓\n")
+                append(result.detail)
+                append("\n\nFrame verde apresentado pela cadeia:\n")
+                append("ANativeWindow → MobileGlues → EGL → OpenGL → SwapBuffers ✓\n")
+                append("\nPróximo: callbacks GLFW/LWJGL + JLI_Launch.")
+            }
         } else {
-            "Falha no bridge de Surface\n${result.detail}"
+            buildString {
+                append("ANativeWindow pronta ✓\n")
+                append(AstraNativeBridge.surfaceProbe().detail)
+                append("\n\nFalha no teste EGL/MobileGlues\n")
+                append(result.detail)
+            }
         }
     }
 
