@@ -22,8 +22,8 @@ android {
         applicationId = "io.github.astromg01.launcher"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.1.0-alpha02"
+        versionCode = 3
+        versionName = "0.1.0-alpha03"
     }
 
     signingConfigs {
@@ -89,6 +89,9 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+
+    implementation("org.apache.commons:commons-compress:1.28.0")
+    implementation("org.tukaani:xz:1.12")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
