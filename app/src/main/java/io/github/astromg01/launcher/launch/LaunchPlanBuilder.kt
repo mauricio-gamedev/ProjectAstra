@@ -6,6 +6,8 @@ import io.github.astromg01.launcher.account.AccountType
 import io.github.astromg01.launcher.core.MinecraftInstance
 import io.github.astromg01.launcher.core.RendererKind
 import io.github.astromg01.launcher.install.VersionInstaller
+import io.github.astromg01.launcher.lwjgl.AndroidLwjglManager
+import io.github.astromg01.launcher.lwjgl.InstalledAndroidLwjgl
 import io.github.astromg01.launcher.nativebridge.NativeRuntimeValidator
 import io.github.astromg01.launcher.renderer.RendererComponentManager
 import io.github.astromg01.launcher.runtime.RuntimeInstaller
@@ -15,7 +17,7 @@ import java.io.File
 
 object LaunchPlanBuilder {
     private const val LAUNCHER_NAME = "ProjectAstra"
-    private const val LAUNCHER_VERSION = "0.1.0-alpha06"
+    private const val LAUNCHER_VERSION = "0.1.0-alpha07"
 
     fun build(
         context: Context,
@@ -45,13 +47,14 @@ object LaunchPlanBuilder {
         if (!clientJar.isFile) error("Client JAR não encontrado: ${clientJar.name}")
 
         val metadata = JSONObject(metadataFile.readText())
+        val androidLwjgl = AndroidLwjglManager.installedForMetadata(context, metadata)
         val gameDir = File(root, "instances/${instance.id}/game").apply { mkdirs() }
         val nativesDir = File(root, "instances/${instance.id}/natives").apply { mkdirs() }
         val assetsDir = File(root, "assets").apply { mkdirs() }
         val librariesDir = File(root, "libraries").apply { mkdirs() }
         val nativeSearchPath = buildNativeSearchPath(context, nativesDir, renderer.directoryPath)
 
-        val classpath = resolveClasspath(metadata, librariesDir, clientJar)
+        val classpath = resolveClasspath(metadata, librariesDir, clientJar, androidLwjgl)
         val classpathString = classpath.joinToString(File.pathSeparator)
         val placeholders = buildPlaceholders(
             instance = instance,
@@ -73,13 +76,11 @@ object LaunchPlanBuilder {
             if (metadataJvm != null) {
                 addAll(resolveArgumentArray(metadataJvm, placeholders))
             } else {
-                // Legacy metadata predates the explicit JVM argument section.
                 add("-Djava.library.path=$nativeSearchPath")
                 add("-cp")
                 add(classpathString)
             }
 
-            // Some custom/legacy metadata can omit classpath even though a main class is present.
             if (none { it == "-cp" || it == "-classpath" }) {
                 add("-cp")
                 add(classpathString)
@@ -107,10 +108,12 @@ object LaunchPlanBuilder {
             put("ASTRA_RENDERER", instance.renderer.name)
             put("ASTRA_RENDERER_RESOLVED", renderer.id)
             put("ASTRA_PERFORMANCE_MODE", instance.performanceMode.name)
+            put("ASTRA_LWJGL_VERSION", androidLwjgl.version)
+            put("ASTRA_LWJGL_DIR", androidLwjgl.directoryPath)
         }
 
         val warnings = buildList {
-            add("JLI + MobileGlues preparados; substituição LWJGL Android ainda pendente.")
+            add("JLI + MobileGlues + LWJGL Android preparados; Surface/EGL e callbacks nativos ainda pendentes.")
             if (account.type == AccountType.OFFLINE) {
                 add("Conta offline: válida para single-player/LAN e servidores que aceitam identidades offline.")
             }
@@ -149,14 +152,20 @@ object LaunchPlanBuilder {
     private fun resolveClasspath(
         metadata: JSONObject,
         librariesDir: File,
-        clientJar: File
+        clientJar: File,
+        androidLwjgl: InstalledAndroidLwjgl
     ): List<File> {
-        val result = mutableListOf<File>()
+        val result = androidLwjgl.jarPaths.map(::File).toMutableList()
         val libraries = metadata.optJSONArray("libraries") ?: JSONArray()
 
         for (index in 0 until libraries.length()) {
             val library = libraries.optJSONObject(index) ?: continue
             if (!MinecraftRuleEvaluator.allows(library.optJSONArray("rules"))) continue
+
+            val coordinate = library.optString("name")
+            if (AndroidLwjglManager.shouldReplaceMojangLibrary(coordinate, androidLwjgl)) {
+                continue
+            }
 
             val artifact = library.optJSONObject("downloads")?.optJSONObject("artifact") ?: continue
             val path = artifact.optString("path")
