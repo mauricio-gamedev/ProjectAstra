@@ -1,41 +1,79 @@
 # Project Astra
 
-Project Astra is an experimental, performance-focused Minecraft Java launcher for Android.
+Experimental Minecraft: Java Edition launcher foundation for Android.
 
-## Status
+> **Status:** `0.1.0-alpha01` foundation only. This repository does not yet launch Minecraft.
 
-`0.1.0-alpha01` — foundation phase.
+## First milestone
 
-Current foundation includes:
+The first scaffold establishes:
 
-- Kotlin + Jetpack Compose Android app shell
-- Offline account profiles with stable UUIDs
-- Multiple local accounts and default account selection
-- Device profiling foundation
-- Renderer abstraction models (Auto, MobileGlues, GL4ES, ANGLE, Zink)
-- Performance profiles (Performance, Balanced, Quality, Adaptive)
-- Instance model foundation
-- GitHub Actions debug APK build workflow
+- Kotlin + Jetpack Compose Android application
+- Android API 26 minimum
+- compileSdk 37 / targetSdk 36
+- persistent offline account profiles
+- stable Minecraft-style offline UUID generation
+- default-account selection
+- device profiling foundation
+- models for instances, renderers, and performance modes
+- GitHub Actions debug APK build
+- placeholders for Microsoft authentication and Minecraft runtime integration
 
-## Planned next milestones
+## Architecture direction
 
-1. Version Manager
-2. Java Runtime Manager (Java 8 / 17 / 21)
-3. Minecraft asset/library downloader
-4. Launch argument builder
-5. Renderer integration
-6. Fabric/Forge/NeoForge support
-7. Microsoft authentication
-8. Adaptive optimization engine
+```text
+app
+├── account
+│   ├── AccountProfile
+│   ├── AccountStore
+│   ├── AccountViewModel
+│   └── OfflineAccountService
+├── core
+│   ├── DeviceProfiler
+│   └── LauncherModels
+└── ui
+    ├── AstraApp
+    └── AstraTheme
+```
+
+Planned modules:
+
+```text
+launcher-core
+runtime-manager
+version-manager
+renderer-api
+renderer-mobileglues
+renderer-gl4es
+renderer-zink
+performance-engine
+control-engine
+mod-manager
+```
 
 ## Offline accounts
 
-Offline accounts are a first-class supported option. They are intended for single-player, LAN, and servers configured to permit offline players. Project Astra does not attempt to bypass authentication on servers that require authenticated Minecraft accounts.
+Offline mode creates a deterministic UUID using the conventional input:
 
-## Project direction
+```text
+OfflinePlayer:<username>
+```
 
-The launcher is being designed as a modular Android-native frontend around isolated runtime, account, renderer, instance, and optimization subsystems so each can evolve independently.
+Offline profiles are intended for local/single-player use and servers configured to accept offline identities. They are not intended to bypass authentication on servers that require authenticated Microsoft/Minecraft accounts.
 
-## License
+## Build on GitHub
 
-Copyright (c) 2026. All rights reserved unless a component explicitly states otherwise. Third-party components will retain their respective licenses and attribution requirements.
+Push the project to GitHub and run **Actions → Android Debug APK → Run workflow**. The workflow uploads `app-debug.apk` as an artifact.
+
+## Next milestone
+
+1. Minecraft version manifest and downloader
+2. Runtime selection (Java 8 / 17 / 21)
+3. Microsoft OAuth provider
+4. Launch-plan builder (classpath, assets, natives, JVM/game args)
+5. Renderer abstraction
+6. First real Minecraft launch
+
+## Licensing
+
+The code in this initial scaffold is original project code. No Zalith, Pojav, Amethyst, renderer, or Minecraft assets/code are vendored in this milestone. Any third-party component added later must retain and comply with its own license and notices.
