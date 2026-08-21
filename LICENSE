@@ -1,6 +1,22 @@
-Copyright (c) 2026. All rights reserved.
+PROJECT ASTRA PROPRIETARY LICENSE
+All Rights Reserved
 
-This repository is not granted an open-source license by this file.
-No permission is granted to copy, modify, redistribute, sublicense, or sell the original Project Astra source code except where separately authorized in writing.
+Copyright © 2026 mauricio-gamedev. All rights reserved.
 
-Third-party components, when added, remain governed by their own licenses and are not relicensed by this notice.
+Project Astra, including launcher-owned source code, user interface code, documentation, project-specific artwork, branding, configuration, build scripts, and other original material in this repository, is proprietary unless a file or directory explicitly states otherwise.
+
+No permission is granted to copy, modify, merge, publish, distribute, sublicense, sell, commercialize, relicense, rehost, or create derivative works from Project Astra or substantial portions of its launcher-owned material without prior written permission from the copyright holder.
+
+Access to this public repository does not grant a license to use the Project Astra source code beyond rights that are necessarily provided by the GitHub Terms of Service for hosting, viewing, and platform functionality.
+
+THIRD-PARTY MATERIAL
+
+This license does not apply to third-party software, libraries, runtimes, game files, APIs, renderer components, compatibility layers, or other material that is separately licensed. Those components remain subject to their respective copyright notices and license terms. This includes, where applicable, components such as MobileGlues, LWJGL, OpenJDK runtimes, Minecraft/Mojang/Microsoft files, and other externally sourced dependencies.
+
+TRADEMARKS AND BRANDING
+
+The Project Astra name, logos, visual identity, and project-specific branding may not be used to imply endorsement, affiliation, or an official derivative release without prior written permission.
+
+NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
