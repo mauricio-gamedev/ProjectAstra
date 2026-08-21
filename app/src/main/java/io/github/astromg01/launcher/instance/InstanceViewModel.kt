@@ -7,6 +7,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.astromg01.launcher.core.MinecraftInstance
+import io.github.astromg01.launcher.install.InstallProgress
+import io.github.astromg01.launcher.install.VersionInstaller
 import io.github.astromg01.launcher.version.MinecraftVersion
 import io.github.astromg01.launcher.version.VersionManifestService
 import java.util.UUID
@@ -30,6 +32,15 @@ class InstanceViewModel(application: Application) : AndroidViewModel(application
         private set
 
     var isLoadingVersions by mutableStateOf(false)
+        private set
+
+    var installingInstanceId by mutableStateOf<String?>(null)
+        private set
+
+    var installProgress by mutableStateOf<InstallProgress?>(null)
+        private set
+
+    var installMessage by mutableStateOf<String?>(null)
         private set
 
     var errorMessage by mutableStateOf<String?>(null)
@@ -100,7 +111,52 @@ class InstanceViewModel(application: Application) : AndroidViewModel(application
         return true
     }
 
+    fun installInstance(instanceId: String) {
+        if (installingInstanceId != null) return
+        val instance = instances.firstOrNull { it.id == instanceId } ?: return
+
+        viewModelScope.launch {
+            installingInstanceId = instanceId
+            installProgress = InstallProgress("Preparando", 0, 1, instance.minecraftVersion)
+            installMessage = null
+            errorMessage = null
+
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val version = versions.firstOrNull { it.id == instance.minecraftVersion }
+                        ?: VersionManifestService.fetch().versions.firstOrNull {
+                            it.id == instance.minecraftVersion
+                        }
+                        ?: error("Versão ${instance.minecraftVersion} não encontrada no manifest da Mojang.")
+
+                    VersionInstaller.install(getApplication(), version) { progress ->
+                        viewModelScope.launch {
+                            installProgress = progress
+                        }
+                    }
+                }
+            }
+
+            result.onSuccess { info ->
+                installProgress = InstallProgress("Concluído", 1, 1, info.versionId)
+                installMessage = "Minecraft ${info.versionId} instalado • Java ${info.javaMajorVersion} necessário"
+            }.onFailure { error ->
+                errorMessage = error.message ?: "Falha ao instalar os arquivos do Minecraft."
+                installProgress = null
+            }
+
+            installingInstanceId = null
+        }
+    }
+
+    fun isInstalled(versionId: String): Boolean =
+        VersionInstaller.isInstalled(getApplication(), versionId)
+
+    fun installedJavaMajor(versionId: String): Int? =
+        VersionInstaller.readInstalledInfo(getApplication(), versionId)?.javaMajorVersion
+
     fun removeInstance(id: String) {
+        if (installingInstanceId == id) return
         instances = instances.filterNot { it.id == id }
         store.save(instances)
     }
