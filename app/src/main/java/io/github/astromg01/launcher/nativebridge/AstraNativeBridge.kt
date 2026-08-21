@@ -57,16 +57,27 @@ object AstraNativeBridge {
         }
     }
 
-    fun attach(surface: Surface): NativeProbeResult = parseNativeResult {
-        attachSurface(surface)
+    fun attach(surface: Surface): NativeProbeResult {
+        val astra = parseNativeResult { attachSurface(surface) }
+        if (!astra.success) return astra
+
+        val glfw = AstraGlfwBridge.attach(surface)
+        if (!glfw.success) {
+            return NativeProbeResult(false, "ANativeWindow Astra OK; GLFW bridge falhou: ${glfw.detail}")
+        }
+        return NativeProbeResult(true, "${astra.detail} • GLFW bridge anexada")
     }
 
     fun surfaceProbe(): NativeProbeResult = parseNativeResult {
         surfaceStatus()
     }
 
-    fun startGraphics(rendererLibraryPath: String): NativeProbeResult = parseNativeResult {
-        startGraphicsTest(rendererLibraryPath)
+    fun startGraphics(rendererLibraryPath: String): NativeProbeResult {
+        val glfw = AstraGlfwBridge.configure(rendererLibraryPath)
+        if (!glfw.success) {
+            return NativeProbeResult(false, "Configuração GLFW/MobileGlues falhou: ${glfw.detail}")
+        }
+        return parseNativeResult { startGraphicsTest(rendererLibraryPath) }
     }
 
     fun graphicsProbe(): NativeProbeResult = parseNativeResult {
