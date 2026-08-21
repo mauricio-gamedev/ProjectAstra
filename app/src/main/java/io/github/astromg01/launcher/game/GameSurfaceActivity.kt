@@ -16,7 +16,6 @@ import io.github.astromg01.launcher.nativebridge.AstraNativeBridge
 import io.github.astromg01.launcher.nativebridge.NativeRuntimeValidator
 import io.github.astromg01.launcher.renderer.RendererComponentManager
 import io.github.astromg01.launcher.runtime.RuntimeInstaller
-import java.io.File
 
 class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
     private lateinit var statusView: TextView
@@ -197,7 +196,7 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
                 append(result.detail)
                 append("\n\nFrame verde apresentado pela cadeia:\n")
                 append("ANativeWindow → MobileGlues → EGL → OpenGL → SwapBuffers ✓\n")
-                append("\nAlpha09: toque em JVM test para iniciar OpenJDK via JLI_Launch no processo :game.")
+                append("\nAlpha10: JVM test grava um relatório persistente mesmo se :game encerrar.")
             }
         } else {
             buildString {
@@ -220,42 +219,62 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
         }
 
         statusView.text = buildString {
-            append("Project Astra • JVM Bridge alpha09\n")
+            append("Project Astra • JVM Bridge alpha10\n")
             append("Graphics Bridge validado ✓\n")
             append("Processo de jogo isolado: :game ✓\n\n")
-            append("Procurando runtime OpenJDK instalado…")
+            append("Preparando flight recorder do OpenJDK…")
         }
 
         Thread {
+            var selectedJavaMajor: Int? = null
             val result = runCatching {
                 val runtime = listOf(21, 17, 8)
                     .firstNotNullOfOrNull { major -> RuntimeInstaller.installedRuntime(this, major) }
                     ?: error("Nenhum Java 21/17/8 instalado no Astra.")
+                selectedJavaMajor = runtime.majorVersion
 
                 val nativeStatus = NativeRuntimeValidator.validate(this, runtime)
                 if (!nativeStatus.success || nativeStatus.jliPath.isNullOrBlank()) {
                     error(nativeStatus.detail)
                 }
 
-                val logFile = File(cacheDir, "astra-jli-alpha09.log").apply { delete() }
+                JvmSmokeReportStore.markStarted(
+                    context = this,
+                    javaMajor = runtime.majorVersion,
+                    nativeDetail = nativeStatus.detail
+                )
+                val logFile = JvmSmokeReportStore.logFile(this)
+
                 val launch = AstraNativeBridge.testJavaVersion(
                     jliLibraryPath = nativeStatus.jliPath,
                     javaExecutable = runtime.javaPath,
                     workingDirectory = runtime.homePath,
                     logPath = logFile.absolutePath
                 )
-                val log = if (logFile.isFile) {
-                    logFile.readText().trim().takeLast(6000)
-                } else {
-                    "(stdout/stderr não gerou arquivo)"
-                }
+
+                // If JLI_Launch terminates :game, execution never reaches here.
+                // The STARTED marker + stdout/stderr file are intentionally left for MainActivity.
+                JvmSmokeReportStore.markReturned(
+                    context = this,
+                    javaMajor = runtime.majorVersion,
+                    success = launch.success,
+                    detail = launch.detail
+                )
 
                 JvmTestReport(
                     success = launch.success,
                     javaMajor = runtime.majorVersion,
                     nativeDetail = nativeStatus.detail,
                     launchDetail = launch.detail,
-                    log = log
+                    log = logFile.takeIf { it.isFile }?.readText().orEmpty().trim().takeLast(6000)
+                )
+            }
+
+            result.onFailure { error ->
+                JvmSmokeReportStore.markError(
+                    context = this,
+                    javaMajor = selectedJavaMajor,
+                    detail = error.message ?: error.javaClass.simpleName
                 )
             }
 
@@ -269,19 +288,15 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
                         append(report.launchDetail)
                         append("\nJava ${report.javaMajor}\n\n")
                         append("--- stdout/stderr OpenJDK ---\n")
-                        append(report.log)
-                        append("\n\n")
-                        if (report.success) {
-                            append("Próximo: GLFW/LWJGL callbacks + Minecraft main class.")
-                        } else {
-                            append("Envie este texto/print para corrigirmos a ponte JLI.")
-                        }
+                        append(report.log.ifBlank { "(sem saída capturada)" })
+                        append("\n\nRelatório persistente salvo para a tela principal.")
                     }
                 }.onFailure { error ->
                     statusView.text = buildString {
                         append("Project Astra • JVM Bridge falhou\n")
                         append("Processo isolado :game ✓\n\n")
                         append(error.message ?: error.javaClass.simpleName)
+                        append("\n\nRelatório persistente salvo para a tela principal.")
                     }
                 }
                 jvmTestRunning = false
