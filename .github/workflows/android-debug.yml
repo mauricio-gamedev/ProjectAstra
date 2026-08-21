@@ -24,6 +24,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Inspect upstream LWJGL native AAR layout
+        run: |
+          curl --fail --location --retry 3 \
+            -o "$RUNNER_TEMP/lwjgl-3.3.3-natives-release.aar" \
+            "https://raw.githubusercontent.com/AngelAuraMC/Amethyst-Android/360d708262ff703d9b52782d20cd348410a33df5/app_pojavlauncher/libs/lwjgl-3.3.3-natives-release.aar"
+          echo "===== LWJGL 3.3.3 native AAR entries ====="
+          unzip -l "$RUNNER_TEMP/lwjgl-3.3.3-natives-release.aar"
+          echo "===== likely native entries ====="
+          unzip -Z1 "$RUNNER_TEMP/lwjgl-3.3.3-natives-release.aar" | grep -Ei '\.(so|dll|dylib)$|arm64|aarch64|armeabi|x86' || true
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
