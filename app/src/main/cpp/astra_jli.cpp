@@ -72,6 +72,11 @@ std::string errnoMessage(const char* stage) {
     return std::string(stage) + ": " + std::strerror(errno);
 }
 
+const char* environmentOrUnset(const char* name) {
+    const char* value = std::getenv(name);
+    return value != nullptr && value[0] != '\0' ? value : "<unset>";
+}
+
 std::string runtimeLibraryPath(const std::string& javaHome) {
     const std::string server = javaHome + "/lib/server";
     const std::string lib = javaHome + "/lib";
@@ -171,7 +176,7 @@ bool preloadRuntimeLibraries(const std::string& javaHome, std::string& error) {
         {"lib/libjsig.so", false}
     };
 
-    std::fprintf(stderr, "[Project Astra alpha13] OpenJDK native preload\n");
+    std::fprintf(stderr, "[Project Astra alpha19] OpenJDK native preload\n");
     gRuntimePreloadHandles.reserve(
         gRuntimePreloadHandles.size() + sizeof(libraries) / sizeof(libraries[0])
     );
@@ -340,7 +345,7 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchJavaVersi
     auto argv = buildArgv(storage, argc);
     const bool executableBit = access(javaPath.c_str(), X_OK) == 0;
 
-    std::fprintf(stderr, "[Project Astra alpha13] JLI_Launch JVM smoke test\n");
+    std::fprintf(stderr, "[Project Astra alpha19] JLI_Launch JVM smoke test\n");
     std::fprintf(stderr, "libjli=%s\n", jliPath.c_str());
     std::fprintf(stderr, "java=%s\n", javaPath.c_str());
     std::fprintf(stderr, "JAVA_HOME=%s\n", javaHome.c_str());
@@ -356,8 +361,8 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchJavaVersi
         nullptr,
         0,
         nullptr,
-        "Project Astra 0.1.0-alpha13",
-        "0.1.0-alpha13",
+        "Project Astra 0.1.0-alpha19",
+        "0.1.0-alpha19",
         "java",
         "java",
         JNI_FALSE,
@@ -438,7 +443,7 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchMinecraft
     auto argv = buildArgv(storage, argc);
     const bool executableBit = access(javaPath.c_str(), X_OK) == 0;
 
-    std::fprintf(stderr, "[Project Astra alpha13] Minecraft LaunchPlan handoff\n");
+    std::fprintf(stderr, "[Project Astra alpha19] Minecraft LaunchPlan handoff\n");
     std::fprintf(stderr, "libjli=%s\n", jliPath.c_str());
     std::fprintf(stderr, "java=%s\n", javaPath.c_str());
     std::fprintf(stderr, "JAVA_HOME=%s\n", javaHome.c_str());
@@ -446,6 +451,10 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchMinecraft
     std::fprintf(stderr, "main_class=%s\n", mainClass.c_str());
     std::fprintf(stderr, "jvm_args=%zu game_args=%zu\n", jvmArgs.size(), gameArgs.size());
     std::fprintf(stderr, "LD_LIBRARY_PATH=%s\n", ldLibraryPath.c_str());
+    std::fprintf(stderr, "renderer_env=POJAV_RENDERER:%s AMETHYST_RENDERER:%s POJAV_LOAD_TURNIP:%s\n",
+        environmentOrUnset("POJAV_RENDERER"),
+        environmentOrUnset("AMETHYST_RENDERER"),
+        environmentOrUnset("POJAV_LOAD_TURNIP"));
     std::fprintf(stderr, "java_mode=%04o X_OK=%s\n", javaStat.st_mode & 07777, executableBit ? "yes" : "no");
     std::fprintf(stderr, "argc=%d argv_null_terminated=%s\n", argc, argv[argc] == nullptr ? "yes" : "no");
     std::fprintf(stderr, "runtime_preload_handles=%zu\n", gRuntimePreloadHandles.size());
@@ -459,8 +468,8 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchMinecraft
         nullptr,
         0,
         nullptr,
-        "Project Astra 0.1.0-alpha13",
-        "0.1.0-alpha13",
+        "Project Astra 0.1.0-alpha19",
+        "0.1.0-alpha19",
         "java",
         "java",
         JNI_FALSE,
