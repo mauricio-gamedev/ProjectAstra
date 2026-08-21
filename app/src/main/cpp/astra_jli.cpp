@@ -184,7 +184,7 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchJavaVersi
         argv.push_back(argument.data());
     }
 
-    std::fprintf(stderr, "[Project Astra alpha09] JLI_Launch smoke test\n");
+    std::fprintf(stderr, "[Project Astra alpha10] JLI_Launch smoke test\n");
     std::fprintf(stderr, "libjli=%s\n", jliPath.c_str());
     std::fprintf(stderr, "java=%s\n\n", javaPath.c_str());
     std::fflush(stderr);
@@ -196,8 +196,8 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchJavaVersi
         nullptr,
         0,
         nullptr,
-        "Project Astra 0.1.0-alpha09",
-        "0.1.0-alpha09",
+        "Project Astra 0.1.0-alpha10",
+        "0.1.0-alpha10",
         "java",
         "java",
         JNI_FALSE,
