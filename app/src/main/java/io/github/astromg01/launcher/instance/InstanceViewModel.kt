@@ -6,9 +6,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.astromg01.launcher.account.AccountStore
 import io.github.astromg01.launcher.core.MinecraftInstance
 import io.github.astromg01.launcher.install.InstallProgress
 import io.github.astromg01.launcher.install.VersionInstaller
+import io.github.astromg01.launcher.launch.LaunchPlan
+import io.github.astromg01.launcher.launch.LaunchPlanBuilder
 import io.github.astromg01.launcher.version.MinecraftVersion
 import io.github.astromg01.launcher.version.VersionManifestService
 import java.util.UUID
@@ -18,6 +21,7 @@ import kotlinx.coroutines.withContext
 
 class InstanceViewModel(application: Application) : AndroidViewModel(application) {
     private val store = InstanceStore(application)
+    private val accountStore = AccountStore(application)
 
     var instances by mutableStateOf(store.load())
         private set
@@ -37,10 +41,19 @@ class InstanceViewModel(application: Application) : AndroidViewModel(application
     var installingInstanceId by mutableStateOf<String?>(null)
         private set
 
+    var preparingLaunchInstanceId by mutableStateOf<String?>(null)
+        private set
+
     var installProgress by mutableStateOf<InstallProgress?>(null)
         private set
 
     var installMessage by mutableStateOf<String?>(null)
+        private set
+
+    var preparedLaunchPlan by mutableStateOf<LaunchPlan?>(null)
+        private set
+
+    var launchMessage by mutableStateOf<String?>(null)
         private set
 
     var errorMessage by mutableStateOf<String?>(null)
@@ -119,6 +132,8 @@ class InstanceViewModel(application: Application) : AndroidViewModel(application
             installingInstanceId = instanceId
             installProgress = InstallProgress("Preparando", 0, 1, instance.minecraftVersion)
             installMessage = null
+            preparedLaunchPlan = null
+            launchMessage = null
             errorMessage = null
 
             val result = runCatching {
@@ -149,6 +164,51 @@ class InstanceViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun prepareLaunchPlan(instanceId: String) {
+        if (preparingLaunchInstanceId != null || installingInstanceId != null) return
+        val instance = instances.firstOrNull { it.id == instanceId } ?: return
+
+        viewModelScope.launch {
+            preparingLaunchInstanceId = instanceId
+            preparedLaunchPlan = null
+            launchMessage = null
+            errorMessage = null
+
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val accounts = accountStore.load()
+                    val account = instance.accountId?.let { wantedId ->
+                        accounts.firstOrNull { it.id == wantedId }
+                    } ?: accounts.firstOrNull { it.isDefault }
+                    ?: accounts.firstOrNull()
+                    ?: error("Adicione uma conta offline ou Microsoft antes de preparar o jogo.")
+
+                    LaunchPlanBuilder.build(
+                        context = getApplication(),
+                        instance = instance,
+                        account = account
+                    )
+                }
+            }
+
+            result.onSuccess { plan ->
+                preparedLaunchPlan = plan
+                launchMessage = buildString {
+                    append("Plano pronto • Java ${plan.javaMajorVersion}")
+                    append(" • ${plan.classpathCount} entradas no classpath")
+                    append(" • ${plan.mainClass}")
+                }
+            }.onFailure { error ->
+                errorMessage = error.message ?: "Não foi possível preparar a execução do Minecraft."
+            }
+
+            preparingLaunchInstanceId = null
+        }
+    }
+
+    fun launchPlanFor(instanceId: String): LaunchPlan? =
+        preparedLaunchPlan?.takeIf { it.instanceId == instanceId }
+
     fun isInstalled(versionId: String): Boolean =
         VersionInstaller.isInstalled(getApplication(), versionId)
 
@@ -156,8 +216,12 @@ class InstanceViewModel(application: Application) : AndroidViewModel(application
         VersionInstaller.readInstalledInfo(getApplication(), versionId)?.javaMajorVersion
 
     fun removeInstance(id: String) {
-        if (installingInstanceId == id) return
+        if (installingInstanceId == id || preparingLaunchInstanceId == id) return
         instances = instances.filterNot { it.id == id }
+        if (preparedLaunchPlan?.instanceId == id) {
+            preparedLaunchPlan = null
+            launchMessage = null
+        }
         store.save(instances)
     }
 
