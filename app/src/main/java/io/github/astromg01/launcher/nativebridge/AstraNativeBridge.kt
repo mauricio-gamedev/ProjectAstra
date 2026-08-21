@@ -1,5 +1,7 @@
 package io.github.astromg01.launcher.nativebridge
 
+import android.view.Surface
+
 object AstraNativeBridge {
     init {
         System.loadLibrary("astra_native")
@@ -8,6 +10,12 @@ object AstraNativeBridge {
     external fun probeLibrary(libraryPath: String, requiredSymbol: String): String
 
     external fun setEnvironment(key: String, value: String): Int
+
+    external fun attachSurface(surface: Surface): String
+
+    external fun surfaceStatus(): String
+
+    external fun releaseSurface()
 
     fun probe(libraryPath: String, requiredSymbol: String = ""): NativeProbeResult {
         return runCatching {
@@ -22,6 +30,26 @@ object AstraNativeBridge {
                 success = false,
                 detail = error.message ?: error.javaClass.simpleName
             )
+        }
+    }
+
+    fun attach(surface: Surface): NativeProbeResult = parseNativeResult {
+        attachSurface(surface)
+    }
+
+    fun surfaceProbe(): NativeProbeResult = parseNativeResult {
+        surfaceStatus()
+    }
+
+    private inline fun parseNativeResult(block: () -> String): NativeProbeResult {
+        return runCatching {
+            val raw = block()
+            NativeProbeResult(
+                success = raw.startsWith("OK|"),
+                detail = raw.substringAfter('|', raw)
+            )
+        }.getOrElse { error ->
+            NativeProbeResult(false, error.message ?: error.javaClass.simpleName)
         }
     }
 }
