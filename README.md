@@ -2,11 +2,11 @@
 
 Experimental Minecraft: Java Edition launcher foundation for Android.
 
-> **Status:** `0.1.0-alpha01` foundation only. This repository does not yet launch Minecraft.
+> **Status:** `0.1.0-alpha01` foundation. The app builds and now includes the first real Version Manager + persistent instance profiles, but it does not launch Minecraft yet.
 
-## First milestone
+## Current milestone
 
-The first scaffold establishes:
+The current alpha establishes:
 
 - Kotlin + Jetpack Compose Android application
 - Android API 26 minimum
@@ -16,7 +16,11 @@ The first scaffold establishes:
 - stable Minecraft-style offline UUID generation
 - default-account selection
 - device profiling foundation
-- models for instances, renderers, and performance modes
+- Mojang `version_manifest_v2.json` integration
+- latest release/snapshot detection
+- persistent Minecraft instance profiles
+- validation of selected versions against the Mojang manifest
+- models for renderers and performance modes
 - GitHub Actions debug APK build
 - placeholders for Microsoft authentication and Minecraft runtime integration
 
@@ -32,6 +36,12 @@ app
 ├── core
 │   ├── DeviceProfiler
 │   └── LauncherModels
+├── instance
+│   ├── InstanceStore
+│   └── InstanceViewModel
+├── version
+│   ├── MinecraftVersion
+│   └── VersionManifestService
 └── ui
     ├── AstraApp
     └── AstraTheme
@@ -62,18 +72,29 @@ OfflinePlayer:<username>
 
 Offline profiles are intended for local/single-player use and servers configured to accept offline identities. They are not intended to bypass authentication on servers that require authenticated Microsoft/Minecraft accounts.
 
+## Version Manager
+
+Project Astra reads Mojang's official version manifest from:
+
+```text
+https://piston-meta.mojang.com/mc/game/version_manifest_v2.json
+```
+
+The alpha indexes available Java Edition versions, detects the latest release and snapshot, and validates instance version IDs before saving them locally.
+
 ## Build on GitHub
 
 Push the project to GitHub and run **Actions → Android Debug APK → Run workflow**. The workflow uploads `app-debug.apk` as an artifact.
 
 ## Next milestone
 
-1. Minecraft version manifest and downloader
-2. Runtime selection (Java 8 / 17 / 21)
-3. Microsoft OAuth provider
-4. Launch-plan builder (classpath, assets, natives, JVM/game args)
-5. Renderer abstraction
-6. First real Minecraft launch
+1. Version metadata resolver and Minecraft client downloader
+2. Library + asset index downloader with SHA-1 validation
+3. Runtime selection (Java 8 / 17 / 21)
+4. Microsoft OAuth provider
+5. Launch-plan builder (classpath, assets, natives, JVM/game args)
+6. Renderer abstraction
+7. First real Minecraft launch
 
 ## Licensing
 
