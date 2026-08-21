@@ -36,6 +36,10 @@ Offline accounts are a first-class supported option. They are intended for singl
 
 The launcher is being designed as a modular Android-native frontend around isolated runtime, account, renderer, instance, and optimization subsystems so each can evolve independently.
 
-## License
+## Copyright and license
 
-Copyright (c) 2026. All rights reserved unless a component explicitly states otherwise. Third-party components will retain their respective licenses and attribution requirements.
+Copyright © 2026 **mauricio-gamedev**. All rights reserved.
+
+Project Astra launcher-owned source code, UI, documentation, branding, build configuration, and other original project material are proprietary unless explicitly stated otherwise. Public repository visibility does not grant a general license to copy, modify, redistribute, commercialize, rehost, or create derivative works.
+
+See [`LICENSE`](LICENSE) and [`COPYRIGHT.md`](COPYRIGHT.md) for the Project Astra terms. Third-party components remain subject to their own copyright and license requirements and are not claimed as Project Astra property.
