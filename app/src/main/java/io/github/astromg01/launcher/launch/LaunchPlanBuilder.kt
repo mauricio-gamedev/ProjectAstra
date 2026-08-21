@@ -7,6 +7,7 @@ import io.github.astromg01.launcher.core.MinecraftInstance
 import io.github.astromg01.launcher.core.RendererKind
 import io.github.astromg01.launcher.install.VersionInstaller
 import io.github.astromg01.launcher.lwjgl.AndroidLwjglManager
+import io.github.astromg01.launcher.lwjgl.AndroidLwjglNativesManager
 import io.github.astromg01.launcher.lwjgl.InstalledAndroidLwjgl
 import io.github.astromg01.launcher.nativebridge.NativeRuntimeValidator
 import io.github.astromg01.launcher.renderer.RendererComponentManager
@@ -17,7 +18,7 @@ import java.io.File
 
 object LaunchPlanBuilder {
     private const val LAUNCHER_NAME = "ProjectAstra"
-    private const val LAUNCHER_VERSION = "0.1.0-alpha08"
+    private const val LAUNCHER_VERSION = "0.1.0-alpha14"
 
     fun build(
         context: Context,
@@ -48,11 +49,17 @@ object LaunchPlanBuilder {
 
         val metadata = JSONObject(metadataFile.readText())
         val androidLwjgl = AndroidLwjglManager.installedForMetadata(context, metadata)
+        val lwjglNatives = AndroidLwjglNativesManager.ensureInstalled(context, androidLwjgl.version)
         val gameDir = File(root, "instances/${instance.id}/game").apply { mkdirs() }
         val nativesDir = File(root, "instances/${instance.id}/natives").apply { mkdirs() }
         val assetsDir = File(root, "assets").apply { mkdirs() }
         val librariesDir = File(root, "libraries").apply { mkdirs() }
-        val nativeSearchPath = buildNativeSearchPath(context, nativesDir, renderer.directoryPath)
+        val nativeSearchPath = buildNativeSearchPath(
+            context = context,
+            nativesDir = nativesDir,
+            rendererDirectory = renderer.directoryPath,
+            lwjglNativeDirectory = lwjglNatives.directoryPath
+        )
 
         val classpath = resolveClasspath(metadata, librariesDir, clientJar, androidLwjgl)
         val classpathString = classpath.joinToString(File.pathSeparator)
@@ -97,8 +104,12 @@ object LaunchPlanBuilder {
         val nativeEnvironment = NativeRuntimeValidator.buildEnvironment(context, runtime).toMutableMap()
         val rendererEnvironment = RendererComponentManager.environment(context, renderer)
         val existingLd = nativeEnvironment["LD_LIBRARY_PATH"].orEmpty()
-        nativeEnvironment["LD_LIBRARY_PATH"] = listOf(renderer.directoryPath, existingLd)
-            .filter { it.isNotBlank() }
+        nativeEnvironment["LD_LIBRARY_PATH"] = listOf(
+            lwjglNatives.directoryPath,
+            renderer.directoryPath,
+            existingLd
+        ).filter { it.isNotBlank() }
+            .distinct()
             .joinToString(File.pathSeparator)
 
         val environment = linkedMapOf<String, String>().apply {
@@ -110,10 +121,13 @@ object LaunchPlanBuilder {
             put("ASTRA_PERFORMANCE_MODE", instance.performanceMode.name)
             put("ASTRA_LWJGL_VERSION", androidLwjgl.version)
             put("ASTRA_LWJGL_DIR", androidLwjgl.directoryPath)
+            put("ASTRA_LWJGL_NATIVE_DIR", lwjglNatives.directoryPath)
+            put("ASTRA_LWJGL_NATIVE_ABI", lwjglNatives.abi)
+            put("ASTRA_LWJGL_NATIVE_COUNT", lwjglNatives.libraryPaths.size.toString())
         }
 
         val warnings = buildList {
-            add("JLI + MobileGlues + LWJGL Android + ANativeWindow preparados; EGL em validação na alpha08 e callbacks nativos ainda pendentes.")
+            add("JLI + MobileGlues + LWJGL Android JARs/natives + ANativeWindow preparados; callbacks GLFW ainda em validação.")
             if (account.type == AccountType.OFFLINE) {
                 add("Conta offline: válida para single-player/LAN e servidores que aceitam identidades offline.")
             }
@@ -140,8 +154,10 @@ object LaunchPlanBuilder {
     private fun buildNativeSearchPath(
         context: Context,
         nativesDir: File,
-        rendererDirectory: String
+        rendererDirectory: String,
+        lwjglNativeDirectory: String
     ): String = listOf(
+        lwjglNativeDirectory,
         nativesDir.absolutePath,
         rendererDirectory,
         context.applicationInfo.nativeLibraryDir.orEmpty()
