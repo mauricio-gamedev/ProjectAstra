@@ -30,6 +30,18 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Inspect exact GLFW glDriver bytecode
+        run: |
+          URL="https://raw.githubusercontent.com/AngelAuraMC/Amethyst-Android/360d708262ff703d9b52782d20cd348410a33df5/app_pojavlauncher/src/main/assets/components/lwjgl3/3.3.3/lwjgl-3.3.3-merged-modules.jar"
+          curl -fL "$URL" -o "$RUNNER_TEMP/lwjgl-android.jar"
+          javap -classpath "$RUNNER_TEMP/lwjgl-android.jar" -p -c -l org.lwjgl.glfw.GLFW > "$RUNNER_TEMP/glfw.javap"
+          echo '===== glDriver references ====='
+          grep -n -C 35 'glDriver' "$RUNNER_TEMP/glfw.javap" || true
+          echo '===== source line 1108 mapping ====='
+          grep -n -C 20 'line 1108:' "$RUNNER_TEMP/glfw.javap" || true
+          echo '===== glfwCreateWindow method ====='
+          awk '/public static long glfwCreateWindow\(/,/^  public static/' "$RUNNER_TEMP/glfw.javap" | head -n 260
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
