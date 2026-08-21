@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
             if (!showPendingMinecraftReport()) {
                 showPendingJvmReport()
             }
-        }, 350L)
+        }, 800L)
     }
 
     override fun onDestroy() {
@@ -80,6 +80,18 @@ class MainActivity : ComponentActivity() {
             if (report.mainClass.isNotBlank()) append("\nMain class: ${report.mainClass}")
             if (report.detail.isNotBlank()) append("\nDetalhe: ${report.detail}")
             append("\nSinais de Minecraft/LWJGL no log: ${if (report.likelyReachedMinecraft) "SIM ✓" else "NÃO"}")
+
+            report.exitInfo?.let { exit ->
+                append("\n\n--- Android process exit info ---")
+                append("\nProcesso: ${exit.processName}")
+                append("\nMotivo: ${exit.reasonLabel} (${exit.reason})")
+                append("\nStatus/sinal: ${exit.status}")
+                if (exit.description.isNotBlank()) append("\nDescrição: ${exit.description}")
+                append("\nImportance: ${exit.importance}")
+                append("\nPSS/RSS: ${exit.pssKb} / ${exit.rssKb} KB")
+                append("\nTimestamp: ${exit.timestamp}")
+            }
+
             append("\n\n--- stdout/stderr Minecraft ---\n")
             append(report.log.ifBlank { "(nenhuma saída foi capturada)" })
             append("\n\n")
@@ -87,6 +99,8 @@ class MainActivity : ComponentActivity() {
                 when {
                     report.status == "RETURNED_OK" ->
                         "Resultado: a main class retornou normalmente."
+                    report.status == "STARTED" && report.exitInfo != null ->
+                        "Resultado útil: o Android registrou a causa do encerramento do processo :game; use Motivo + Status/sinal acima para a próxima correção."
                     report.status == "STARTED" && report.likelyReachedMinecraft ->
                         "Resultado útil: o JLI entrou na main class real e chegou ao código Minecraft/LWJGL antes do processo :game encerrar."
                     report.status == "STARTED" ->
