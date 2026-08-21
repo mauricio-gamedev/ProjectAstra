@@ -21,11 +21,12 @@ target_link_libraries(
 
 # Android LWJGL's GLFW shim expects a native library named libpojavexec.so.
 # Project Astra provides its own clean compatibility implementation that maps
-# the small expected GLFW bridge ABI to Astra's ANativeWindow + MobileGlues path.
+# the expected bridge ABI to Astra's ANativeWindow + MobileGlues path.
 add_library(
     pojavexec
     SHARED
     astra_pojavexec.cpp
+    astra_glfw_compat.cpp
 )
 
 target_compile_features(pojavexec PRIVATE cxx_std_17)
