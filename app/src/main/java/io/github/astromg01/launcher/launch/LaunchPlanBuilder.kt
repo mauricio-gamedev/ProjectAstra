@@ -1,0 +1,254 @@
+package io.github.astromg01.launcher.launch
+
+import android.content.Context
+import io.github.astromg01.launcher.account.AccountProfile
+import io.github.astromg01.launcher.account.AccountType
+import io.github.astromg01.launcher.core.MinecraftInstance
+import io.github.astromg01.launcher.install.VersionInstaller
+import io.github.astromg01.launcher.runtime.RuntimeInstaller
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+
+object LaunchPlanBuilder {
+    private const val LAUNCHER_NAME = "ProjectAstra"
+    private const val LAUNCHER_VERSION = "0.1.0-alpha04"
+
+    fun build(
+        context: Context,
+        instance: MinecraftInstance,
+        account: AccountProfile
+    ): LaunchPlan {
+        val installedInfo = VersionInstaller.readInstalledInfo(context, instance.minecraftVersion)
+            ?: error("Minecraft ${instance.minecraftVersion} ainda não está instalado.")
+
+        val runtime = RuntimeInstaller.installedRuntime(context, installedInfo.javaMajorVersion)
+            ?: error("Java ${installedInfo.javaMajorVersion} ainda não está instalado.")
+
+        val root = File(context.filesDir, "minecraft")
+        val versionDir = File(root, "versions/${instance.minecraftVersion}")
+        val metadataFile = File(versionDir, "${instance.minecraftVersion}.json")
+        val clientJar = File(versionDir, "${instance.minecraftVersion}.jar")
+        if (!metadataFile.isFile) error("Metadata da versão não encontrada: ${metadataFile.name}")
+        if (!clientJar.isFile) error("Client JAR não encontrado: ${clientJar.name}")
+
+        val metadata = JSONObject(metadataFile.readText())
+        val gameDir = File(root, "instances/${instance.id}/game").apply { mkdirs() }
+        val nativesDir = File(root, "instances/${instance.id}/natives").apply { mkdirs() }
+        val assetsDir = File(root, "assets").apply { mkdirs() }
+        val librariesDir = File(root, "libraries").apply { mkdirs() }
+
+        val classpath = resolveClasspath(metadata, librariesDir, clientJar)
+        val classpathString = classpath.joinToString(File.pathSeparator)
+        val placeholders = buildPlaceholders(
+            instance = instance,
+            account = account,
+            metadata = metadata,
+            gameDir = gameDir,
+            nativesDir = nativesDir,
+            assetsDir = assetsDir,
+            librariesDir = librariesDir,
+            classpath = classpathString,
+            assetIndexId = installedInfo.assetIndexId
+        )
+
+        val jvmArguments = buildList {
+            add("-Xms512M")
+            add("-Xmx${instance.memoryMb.coerceAtLeast(768)}M")
+
+            val metadataJvm = metadata.optJSONObject("arguments")?.optJSONArray("jvm")
+            if (metadataJvm != null) {
+                addAll(resolveArgumentArray(metadataJvm, placeholders))
+            } else {
+                // Legacy metadata predates the explicit JVM argument section.
+                add("-Djava.library.path=${nativesDir.absolutePath}")
+                add("-cp")
+                add(classpathString)
+            }
+
+            // Some custom/legacy metadata can omit classpath even though a main class is present.
+            if (none { it == "-cp" || it == "-classpath" }) {
+                add("-cp")
+                add(classpathString)
+            }
+        }
+
+        val gameArguments = metadata.optJSONObject("arguments")?.optJSONArray("game")?.let {
+            resolveArgumentArray(it, placeholders)
+        } ?: resolveLegacyGameArguments(
+            metadata.optString("minecraftArguments"),
+            placeholders
+        )
+
+        val warnings = buildList {
+            add("Android LWJGL/render natives ainda não foram injetados no plano.")
+            if (account.type == AccountType.OFFLINE) {
+                add("Conta offline: válida para single-player/LAN e servidores que aceitam identidades offline.")
+            }
+            if (metadata.has("inheritsFrom")) {
+                add("Metadata herdada detectada; loaders/modpacks terão resolução de herança em uma etapa própria.")
+            }
+        }
+
+        return LaunchPlan(
+            instanceId = instance.id,
+            minecraftVersion = instance.minecraftVersion,
+            javaMajorVersion = installedInfo.javaMajorVersion,
+            javaExecutable = runtime.javaPath,
+            workingDirectory = gameDir.absolutePath,
+            mainClass = metadata.optString("mainClass", installedInfo.mainClass),
+            classpath = classpath.map(File::getAbsolutePath),
+            jvmArguments = jvmArguments,
+            gameArguments = gameArguments,
+            environment = mapOf(
+                "HOME" to context.filesDir.absolutePath,
+                "JAVA_HOME" to runtime.homePath,
+                "ASTRA_GAME_DIR" to gameDir.absolutePath,
+                "ASTRA_RENDERER" to instance.renderer.name,
+                "ASTRA_PERFORMANCE_MODE" to instance.performanceMode.name
+            ),
+            warnings = warnings
+        )
+    }
+
+    private fun resolveClasspath(
+        metadata: JSONObject,
+        librariesDir: File,
+        clientJar: File
+    ): List<File> {
+        val result = mutableListOf<File>()
+        val libraries = metadata.optJSONArray("libraries") ?: JSONArray()
+
+        for (index in 0 until libraries.length()) {
+            val library = libraries.optJSONObject(index) ?: continue
+            if (!MinecraftRuleEvaluator.allows(library.optJSONArray("rules"))) continue
+
+            val artifact = library.optJSONObject("downloads")?.optJSONObject("artifact") ?: continue
+            val path = artifact.optString("path")
+            if (path.isBlank()) continue
+
+            val file = File(librariesDir, path)
+            if (!file.isFile) {
+                error("Library obrigatória ausente: $path")
+            }
+            result += file
+        }
+
+        result += clientJar
+        return result.distinctBy { it.absolutePath }
+    }
+
+    private fun resolveArgumentArray(
+        array: JSONArray,
+        placeholders: Map<String, String>
+    ): List<String> = buildList {
+        for (index in 0 until array.length()) {
+            when (val value = array.opt(index)) {
+                is String -> add(expand(value, placeholders))
+                is JSONObject -> {
+                    if (!MinecraftRuleEvaluator.allows(value.optJSONArray("rules"))) continue
+                    when (val argumentValue = value.opt("value")) {
+                        is String -> add(expand(argumentValue, placeholders))
+                        is JSONArray -> {
+                            for (valueIndex in 0 until argumentValue.length()) {
+                                val item = argumentValue.optString(valueIndex)
+                                if (item.isNotBlank()) add(expand(item, placeholders))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun resolveLegacyGameArguments(
+        raw: String,
+        placeholders: Map<String, String>
+    ): List<String> {
+        if (raw.isBlank()) return emptyList()
+        return tokenize(raw).map { expand(it, placeholders) }
+    }
+
+    private fun buildPlaceholders(
+        instance: MinecraftInstance,
+        account: AccountProfile,
+        metadata: JSONObject,
+        gameDir: File,
+        nativesDir: File,
+        assetsDir: File,
+        librariesDir: File,
+        classpath: String,
+        assetIndexId: String
+    ): Map<String, String> {
+        val versionType = metadata.optString("type", "release")
+        val accessToken = if (account.type == AccountType.OFFLINE) "0" else ""
+        val session = if (account.type == AccountType.OFFLINE) {
+            "token:0:${account.uuid}"
+        } else {
+            ""
+        }
+
+        return mapOf(
+            "${'$'}{auth_player_name}" to account.username,
+            "${'$'}{version_name}" to instance.minecraftVersion,
+            "${'$'}{game_directory}" to gameDir.absolutePath,
+            "${'$'}{assets_root}" to assetsDir.absolutePath,
+            "${'$'}{game_assets}" to File(assetsDir, "virtual/legacy").absolutePath,
+            "${'$'}{assets_index_name}" to assetIndexId,
+            "${'$'}{auth_uuid}" to account.uuid.replace("-", ""),
+            "${'$'}{auth_access_token}" to accessToken,
+            "${'$'}{auth_session}" to session,
+            "${'$'}{clientid}" to "",
+            "${'$'}{auth_xuid}" to "",
+            "${'$'}{user_type}" to if (account.type == AccountType.OFFLINE) "legacy" else "msa",
+            "${'$'}{user_properties}" to "{}",
+            "${'$'}{version_type}" to versionType,
+            "${'$'}{natives_directory}" to nativesDir.absolutePath,
+            "${'$'}{launcher_name}" to LAUNCHER_NAME,
+            "${'$'}{launcher_version}" to LAUNCHER_VERSION,
+            "${'$'}{classpath}" to classpath,
+            "${'$'}{classpath_separator}" to File.pathSeparator,
+            "${'$'}{library_directory}" to librariesDir.absolutePath,
+            "${'$'}{resolution_width}" to "1280",
+            "${'$'}{resolution_height}" to "720"
+        )
+    }
+
+    private fun expand(value: String, placeholders: Map<String, String>): String {
+        var expanded = value
+        placeholders.forEach { (key, replacement) ->
+            expanded = expanded.replace(key, replacement)
+        }
+        return expanded
+    }
+
+    private fun tokenize(raw: String): List<String> {
+        val result = mutableListOf<String>()
+        val current = StringBuilder()
+        var quote: Char? = null
+        var escaping = false
+
+        raw.forEach { char ->
+            when {
+                escaping -> {
+                    current.append(char)
+                    escaping = false
+                }
+                char == '\\' -> escaping = true
+                quote != null && char == quote -> quote = null
+                quote == null && (char == '\'' || char == '"') -> quote = char
+                quote == null && char.isWhitespace() -> {
+                    if (current.isNotEmpty()) {
+                        result += current.toString()
+                        current.clear()
+                    }
+                }
+                else -> current.append(char)
+            }
+        }
+
+        if (escaping) current.append('\\')
+        if (current.isNotEmpty()) result += current.toString()
+        return result
+    }
+}
