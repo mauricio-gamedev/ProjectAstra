@@ -4,12 +4,16 @@ import android.os.Build
 
 object RuntimeCatalog {
     private const val SOURCE = "AngelAuraMC/angelauramc-openjdk-build"
-    private const val BASE_URL =
-        "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download"
+    private const val RELEASE_ROOT =
+        "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download"
 
     private val supportedMajors = listOf(8, 17, 21, 25)
 
     private val sha256ByRuntime = mapOf(
+        "8:arm" to "9dbee3b09af5f170e2ed9dd596bc81d0e573c88f8bf760c59c8fadbb9073d1e7",
+        "8:arm64" to "9a59124d9791957d55c68be664ab76831f336cf2e1e1cd4414220c6fdbf0e06d",
+        "8:x86" to "b96ce49fab52b28688dccc1a7d85dfc6d0f4048636aac826e1967524b28f75af",
+        "8:x86_64" to "b1fbcef4965c17925894febe8216d089c6dd47b37950b5f945a89616443c1d0e",
         "17:arm" to "4a9134f1ebf6340dd855805d351712462cddab6f3c2684da7e7da10ccf06648d",
         "17:arm64" to "e162c860fe05ee4a4e4af7606437419879f6c748386a7b09fa77d10db6a64091",
         "17:x86" to "223a2d54606a9eb853c8451cf1d6bda1a8f09cb357f40b790140e57d45731ed7",
@@ -44,10 +48,11 @@ object RuntimeCatalog {
         if (!supports(majorVersion, arch)) return null
 
         val fileName = "jre${majorVersion}-android-${arch}.tar.xz"
+        val releaseTag = if (majorVersion == 8) "download_jre8" else "download"
         return RuntimeDescriptor(
             majorVersion = majorVersion,
             architecture = arch,
-            url = "$BASE_URL/$fileName",
+            url = "$RELEASE_ROOT/$releaseTag/$fileName",
             sha256 = sha256ByRuntime["$majorVersion:$arch"],
             source = SOURCE
         )
