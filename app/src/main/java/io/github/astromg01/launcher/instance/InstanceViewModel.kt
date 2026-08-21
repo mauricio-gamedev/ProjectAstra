@@ -8,10 +8,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.astromg01.launcher.account.AccountStore
 import io.github.astromg01.launcher.core.MinecraftInstance
+import io.github.astromg01.launcher.core.RendererKind
 import io.github.astromg01.launcher.install.InstallProgress
 import io.github.astromg01.launcher.install.VersionInstaller
 import io.github.astromg01.launcher.launch.LaunchPlan
 import io.github.astromg01.launcher.launch.LaunchPlanBuilder
+import io.github.astromg01.launcher.nativebridge.NativeRuntimeValidator
+import io.github.astromg01.launcher.renderer.RendererComponentManager
+import io.github.astromg01.launcher.runtime.RuntimeInstaller
 import io.github.astromg01.launcher.version.MinecraftVersion
 import io.github.astromg01.launcher.version.VersionManifestService
 import java.util.UUID
@@ -171,11 +175,12 @@ class InstanceViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             preparingLaunchInstanceId = instanceId
             preparedLaunchPlan = null
-            launchMessage = null
+            launchMessage = "Validando runtime nativo…"
             errorMessage = null
 
             val result = runCatching {
                 withContext(Dispatchers.IO) {
+                    val app = getApplication<Application>()
                     val accounts = accountStore.load()
                     val account = instance.accountId?.let { wantedId ->
                         accounts.firstOrNull { it.id == wantedId }
@@ -183,23 +188,57 @@ class InstanceViewModel(application: Application) : AndroidViewModel(application
                     ?: accounts.firstOrNull()
                     ?: error("Adicione uma conta offline ou Microsoft antes de preparar o jogo.")
 
-                    LaunchPlanBuilder.build(
-                        context = getApplication(),
+                    val installedInfo = VersionInstaller.readInstalledInfo(app, instance.minecraftVersion)
+                        ?: error("Minecraft ${instance.minecraftVersion} ainda não está instalado.")
+                    val runtime = RuntimeInstaller.installedRuntime(app, installedInfo.javaMajorVersion)
+                        ?: error("Java ${installedInfo.javaMajorVersion} ainda não está instalado.")
+
+                    val nativeStatus = NativeRuntimeValidator.validate(app, runtime)
+                    if (!nativeStatus.success) {
+                        error("Bridge Java nativa falhou: ${nativeStatus.detail}")
+                    }
+                    viewModelScope.launch {
+                        launchMessage = "JLI_Launch OK • preparando renderer…"
+                    }
+
+                    val renderer = when (instance.renderer) {
+                        RendererKind.AUTO,
+                        RendererKind.MOBILEGLUES -> RendererComponentManager.ensureMobileGlues(app) { progress ->
+                            viewModelScope.launch {
+                                launchMessage = if (progress.totalBytes > 0L) {
+                                    "${progress.stage}: ${progress.percent}%"
+                                } else {
+                                    progress.stage
+                                }
+                            }
+                        }
+                        RendererKind.GL4ES -> error("GL4ES ainda não possui componente nativo nesta alpha.")
+                        RendererKind.ANGLE -> error("ANGLE ainda não possui componente nativo nesta alpha.")
+                        RendererKind.ZINK -> error("Mesa/Zink ainda não possui componente nativo nesta alpha.")
+                    }
+
+                    val plan = LaunchPlanBuilder.build(
+                        context = app,
                         instance = instance,
                         account = account
                     )
+                    PreparedNativeLaunch(plan, renderer.version, nativeStatus.detail)
                 }
             }
 
-            result.onSuccess { plan ->
-                preparedLaunchPlan = plan
+            result.onSuccess { prepared ->
+                preparedLaunchPlan = prepared.plan
                 launchMessage = buildString {
-                    append("Plano pronto • Java ${plan.javaMajorVersion}")
-                    append(" • ${plan.classpathCount} entradas no classpath")
-                    append(" • ${plan.mainClass}")
+                    append("Plano nativo pronto • ")
+                    append(prepared.nativeDetail)
+                    append(" • MobileGlues ")
+                    append(prepared.rendererVersion)
+                    append(" • Java ${prepared.plan.javaMajorVersion}")
+                    append(" • ${prepared.plan.classpathCount} JARs")
                 }
             }.onFailure { error ->
-                errorMessage = error.message ?: "Não foi possível preparar a execução do Minecraft."
+                launchMessage = null
+                errorMessage = error.message ?: "Não foi possível preparar a execução nativa do Minecraft."
             }
 
             preparingLaunchInstanceId = null
@@ -228,4 +267,10 @@ class InstanceViewModel(application: Application) : AndroidViewModel(application
     fun clearError() {
         errorMessage = null
     }
+
+    private data class PreparedNativeLaunch(
+        val plan: LaunchPlan,
+        val rendererVersion: String,
+        val nativeDetail: String
+    )
 }
