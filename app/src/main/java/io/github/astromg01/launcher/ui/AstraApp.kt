@@ -38,6 +38,7 @@ import io.github.astromg01.launcher.account.AccountType
 import io.github.astromg01.launcher.account.AccountViewModel
 import io.github.astromg01.launcher.core.DeviceProfiler
 import io.github.astromg01.launcher.instance.InstanceViewModel
+import io.github.astromg01.launcher.runtime.RuntimeViewModel
 
 private enum class AppTab(val title: String) {
     HOME("Início"),
@@ -50,7 +51,8 @@ private enum class AppTab(val title: String) {
 @Composable
 fun AstraApp(
     accountViewModel: AccountViewModel = viewModel(),
-    instanceViewModel: InstanceViewModel = viewModel()
+    instanceViewModel: InstanceViewModel = viewModel(),
+    runtimeViewModel: RuntimeViewModel = viewModel()
 ) {
     var tab by remember { mutableStateOf(AppTab.HOME) }
 
@@ -83,9 +85,13 @@ fun AstraApp(
     ) { padding ->
         when (tab) {
             AppTab.HOME -> HomeScreen(Modifier.padding(padding))
-            AppTab.INSTANCES -> InstancesScreen(instanceViewModel, Modifier.padding(padding))
+            AppTab.INSTANCES -> InstancesScreen(
+                viewModel = instanceViewModel,
+                runtimeViewModel = runtimeViewModel,
+                modifier = Modifier.padding(padding)
+            )
             AppTab.ACCOUNTS -> AccountsScreen(accountViewModel, Modifier.padding(padding))
-            AppTab.SETTINGS -> SettingsScreen(Modifier.padding(padding))
+            AppTab.SETTINGS -> SettingsScreen(runtimeViewModel, Modifier.padding(padding))
         }
     }
 }
@@ -103,7 +109,7 @@ private fun HomeScreen(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Launcher Core • Alpha", style = MaterialTheme.typography.headlineSmall)
-        Text("A base já gerencia contas, versões, instâncias e os arquivos oficiais do Minecraft.")
+        Text("A base já gerencia contas, versões, instâncias, arquivos do jogo e runtimes Java Android.")
 
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -120,8 +126,8 @@ private fun HomeScreen(modifier: Modifier = Modifier) {
                 Text("Núcleo do launcher", fontWeight = FontWeight.Bold)
                 Text("✓ Version Manager")
                 Text("✓ Minecraft download pipeline")
-                Text("→ Java Runtime Manager")
-                Text("→ Launch pipeline")
+                Text("✓ Java Runtime Manager")
+                Text("→ Launch-plan builder")
                 Text("→ Renderer plugins")
                 Text("→ Auto Optimize")
             }
@@ -132,6 +138,7 @@ private fun HomeScreen(modifier: Modifier = Modifier) {
 @Composable
 private fun InstancesScreen(
     viewModel: InstanceViewModel,
+    runtimeViewModel: RuntimeViewModel,
     modifier: Modifier = Modifier
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -212,6 +219,8 @@ private fun InstancesScreen(
 
         viewModel.instances.forEach { instance ->
             val installed = viewModel.isInstalled(instance.minecraftVersion)
+            val javaMajor = if (installed) viewModel.installedJavaMajor(instance.minecraftVersion) else null
+            val runtimeReady = javaMajor != null && runtimeViewModel.isInstalled(javaMajor)
             val isInstalling = viewModel.installingInstanceId == instance.id
             val progress = if (isInstalling) viewModel.installProgress else null
 
@@ -226,15 +235,26 @@ private fun InstancesScreen(
                     Text("Memória: ${instance.memoryMb} MB")
 
                     if (installed) {
-                        val javaMajor = viewModel.installedJavaMajor(instance.minecraftVersion)
                         Text(
-                            buildString {
-                                append("Arquivos instalados e verificados")
-                                if (javaMajor != null) append(" • Java $javaMajor")
-                            },
+                            "Arquivos do jogo instalados e verificados",
                             color = MaterialTheme.colorScheme.primary,
                             style = MaterialTheme.typography.bodySmall
                         )
+                        if (javaMajor != null) {
+                            Text(
+                                if (runtimeReady) {
+                                    "Java $javaMajor instalado • pronto para o launch pipeline"
+                                } else {
+                                    "Java $javaMajor necessário • instale em Ajustes"
+                                },
+                                color = if (runtimeReady) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                },
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     } else if (progress != null) {
                         Text(
                             "${progress.stage}: ${progress.percent}%",
@@ -261,7 +281,10 @@ private fun InstancesScreen(
                             }
                         } else {
                             OutlinedButton(onClick = {}, enabled = false) {
-                                Text("Jogar • Java pendente")
+                                Text(
+                                    if (runtimeReady) "Jogar • pipeline pendente"
+                                    else "Jogar • Java pendente"
+                                )
                             }
                         }
 
@@ -311,7 +334,7 @@ private fun CreateInstanceDialog(
         title = { Text("Criar instância") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Escolha a versão. Depois o Astra pode baixar client, libraries e assets oficiais diretamente para o armazenamento do app.")
+                Text("Escolha a versão. Depois o Astra baixa client, libraries e assets oficiais para o armazenamento do app.")
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -473,15 +496,95 @@ private fun OfflineAccountDialog(
 }
 
 @Composable
-private fun SettingsScreen(modifier: Modifier = Modifier) {
+private fun SettingsScreen(
+    runtimeViewModel: RuntimeViewModel,
+    modifier: Modifier = Modifier
+) {
     Column(
-        modifier = modifier.fillMaxSize().padding(20.dp),
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Ajustes", style = MaterialTheme.typography.headlineSmall)
         Text("Perfil de desempenho padrão: Adaptive")
         Text("Renderer padrão: Auto")
-        Text("Java: automático pela metadata da versão")
-        Text("Assinatura: suporte a chave estável de CI preparado")
+        Text("Assinatura: chave estável de CI suportada")
+
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Column(
+                Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Java Runtime Manager", fontWeight = FontWeight.Bold)
+                Text("Arquitetura Android: ${runtimeViewModel.architecture}")
+                Text("O Astra escolhe automaticamente o Java exigido pela metadata do Minecraft.")
+            }
+        }
+
+        runtimeViewModel.message?.let {
+            Text(it, color = MaterialTheme.colorScheme.primary)
+        }
+        runtimeViewModel.errorMessage?.let {
+            Text(it, color = MaterialTheme.colorScheme.error)
+        }
+
+        runtimeViewModel.availableMajors.forEach { major ->
+            val installed = runtimeViewModel.installedRuntime(major)
+            val installing = runtimeViewModel.installingMajor == major
+            val progress = if (installing) runtimeViewModel.progress else null
+
+            Card {
+                Column(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Java $major", fontWeight = FontWeight.Bold)
+                    if (installed != null) {
+                        Text(
+                            "Instalado • ${installed.architecture}",
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(installed.source, style = MaterialTheme.typography.bodySmall)
+                    } else if (progress != null) {
+                        Text(
+                            if (progress.totalBytes > 0L) {
+                                "${progress.stage}: ${progress.percent}%"
+                            } else {
+                                progress.stage
+                            },
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        progress.detail?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    } else {
+                        Text("Não instalado")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            runtimeViewModel.clearStatus()
+                            runtimeViewModel.install(major)
+                        },
+                        enabled = runtimeViewModel.installingMajor == null
+                    ) {
+                        Text(
+                            when {
+                                installing -> "Instalando…"
+                                installed != null -> "Reinstalar"
+                                else -> "Instalar"
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        if (runtimeViewModel.availableMajors.isEmpty()) {
+            Text(
+                "Nenhum runtime Android compatível foi encontrado para esta arquitetura.",
+                color = MaterialTheme.colorScheme.error
+            )
+        }
     }
 }
