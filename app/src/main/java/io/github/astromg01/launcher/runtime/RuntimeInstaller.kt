@@ -15,7 +15,7 @@ import java.net.URL
 import java.security.MessageDigest
 
 object RuntimeInstaller {
-    private const val USER_AGENT = "ProjectAstra/0.1.0-alpha03"
+    private const val USER_AGENT = "ProjectAstra/0.1.0-alpha05"
     private const val MAX_DOWNLOAD_ATTEMPTS = 3
 
     fun installedRuntime(context: Context, majorVersion: Int): InstalledRuntime? {
@@ -225,28 +225,51 @@ object RuntimeInstaller {
         deferredLinks.forEach { (target, entry) ->
             target.parentFile?.mkdirs()
             val linkName = entry.linkName
-            if (linkName.startsWith("/") || linkName.split('/').any { it == ".." }) {
-                error("Link inseguro no runtime: ${entry.name}")
-            }
 
             if (entry.isSymbolicLink) {
+                validateSymbolicLink(destinationCanonical, target, linkName, entry.name)
+                target.delete()
                 runCatching { Os.symlink(linkName, target.absolutePath) }
                     .getOrElse { error("Falha ao criar link do runtime: ${entry.name}") }
             } else {
                 val source = safeTarget(destinationCanonical, linkName)
                 if (!source.isFile) error("Hard link aponta para arquivo inexistente: $linkName")
+                target.delete()
                 source.copyTo(target, overwrite = true)
             }
         }
     }
 
+    private fun validateSymbolicLink(
+        root: File,
+        linkFile: File,
+        linkName: String,
+        entryName: String
+    ) {
+        if (linkName.isBlank() || linkName.startsWith('/')) {
+            error("Link inseguro no runtime: $entryName")
+        }
+
+        // Symlinks de OpenJDK usam caminhos relativos como ../../libfoo.so.
+        // Eles são válidos desde que, após a resolução a partir da pasta do link,
+        // o destino continue confinado dentro da árvore extraída do runtime.
+        val resolved = File(linkFile.parentFile, linkName).canonicalFile
+        ensureInsideRoot(root, resolved, "Link inseguro no runtime: $entryName")
+    }
+
     private fun safeTarget(root: File, entryName: String): File {
         val target = File(root, entryName).canonicalFile
-        val rootPath = root.path + File.separator
-        if (target != root && !target.path.startsWith(rootPath)) {
-            error("Entrada insegura no arquivo do runtime: $entryName")
-        }
+        ensureInsideRoot(root, target, "Entrada insegura no arquivo do runtime: $entryName")
         return target
+    }
+
+    private fun ensureInsideRoot(root: File, target: File, message: String) {
+        val rootCanonical = root.canonicalFile
+        val targetCanonical = target.canonicalFile
+        val rootPath = rootCanonical.path + File.separator
+        if (targetCanonical != rootCanonical && !targetCanonical.path.startsWith(rootPath)) {
+            error(message)
+        }
     }
 
     private fun findRuntimeHome(root: File): File? {
