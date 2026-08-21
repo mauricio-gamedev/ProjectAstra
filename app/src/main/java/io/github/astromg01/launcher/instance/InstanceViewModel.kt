@@ -13,6 +13,7 @@ import io.github.astromg01.launcher.install.InstallProgress
 import io.github.astromg01.launcher.install.VersionInstaller
 import io.github.astromg01.launcher.launch.LaunchPlan
 import io.github.astromg01.launcher.launch.LaunchPlanBuilder
+import io.github.astromg01.launcher.lwjgl.AndroidLwjglManager
 import io.github.astromg01.launcher.nativebridge.NativeRuntimeValidator
 import io.github.astromg01.launcher.renderer.RendererComponentManager
 import io.github.astromg01.launcher.runtime.RuntimeInstaller
@@ -217,12 +218,30 @@ class InstanceViewModel(application: Application) : AndroidViewModel(application
                         RendererKind.ZINK -> error("Mesa/Zink ainda não possui componente nativo nesta alpha.")
                     }
 
+                    viewModelScope.launch {
+                        launchMessage = "MobileGlues ${renderer.version} OK • preparando LWJGL Android…"
+                    }
+                    val lwjgl = AndroidLwjglManager.ensureForMinecraft(app, instance.minecraftVersion) { progress ->
+                        viewModelScope.launch {
+                            launchMessage = if (progress.total > 0) {
+                                "${progress.stage}: ${progress.percent}% • ${progress.detail.orEmpty()}"
+                            } else {
+                                progress.stage
+                            }
+                        }
+                    }
+
                     val plan = LaunchPlanBuilder.build(
                         context = app,
                         instance = instance,
                         account = account
                     )
-                    PreparedNativeLaunch(plan, renderer.version, nativeStatus.detail)
+                    PreparedNativeLaunch(
+                        plan = plan,
+                        rendererVersion = renderer.version,
+                        lwjglVersion = lwjgl.version,
+                        nativeDetail = nativeStatus.detail
+                    )
                 }
             }
 
@@ -233,6 +252,8 @@ class InstanceViewModel(application: Application) : AndroidViewModel(application
                     append(prepared.nativeDetail)
                     append(" • MobileGlues ")
                     append(prepared.rendererVersion)
+                    append(" • LWJGL Android ")
+                    append(prepared.lwjglVersion)
                     append(" • Java ${prepared.plan.javaMajorVersion}")
                     append(" • ${prepared.plan.classpathCount} JARs")
                 }
@@ -271,6 +292,7 @@ class InstanceViewModel(application: Application) : AndroidViewModel(application
     private data class PreparedNativeLaunch(
         val plan: LaunchPlan,
         val rendererVersion: String,
+        val lwjglVersion: String,
         val nativeDetail: String
     )
 }
