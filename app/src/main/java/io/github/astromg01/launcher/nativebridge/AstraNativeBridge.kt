@@ -19,6 +19,13 @@ object AstraNativeBridge {
 
     external fun graphicsStatus(): String
 
+    external fun launchJavaVersionTest(
+        jliLibraryPath: String,
+        javaExecutable: String,
+        workingDirectory: String,
+        logPath: String
+    ): String
+
     external fun shutdownGraphics()
 
     external fun releaseSurface()
@@ -53,6 +60,15 @@ object AstraNativeBridge {
 
     fun graphicsProbe(): NativeProbeResult = parseNativeResult {
         graphicsStatus()
+    }
+
+    fun testJavaVersion(
+        jliLibraryPath: String,
+        javaExecutable: String,
+        workingDirectory: String,
+        logPath: String
+    ): NativeProbeResult = parseNativeResult {
+        launchJavaVersionTest(jliLibraryPath, javaExecutable, workingDirectory, logPath)
     }
 
     private inline fun parseNativeResult(block: () -> String): NativeProbeResult {
