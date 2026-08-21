@@ -1,6 +1,7 @@
 #include <jni.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -48,6 +49,19 @@ jstring fromString(JNIEnv* env, const std::string& value) {
 
 std::string errnoMessage(const char* stage) {
     return std::string(stage) + ": " + std::strerror(errno);
+}
+
+std::string runtimeLibraryPath(const std::string& javaHome) {
+    const std::string server = javaHome + "/lib/server";
+    const std::string lib = javaHome + "/lib";
+    const char* existing = std::getenv("LD_LIBRARY_PATH");
+
+    std::string value = server + ":" + lib;
+    if (existing != nullptr && existing[0] != '\0') {
+        value += ":";
+        value += existing;
+    }
+    return value;
 }
 
 class StdioCapture {
@@ -139,12 +153,28 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchJavaVersi
     }
     gJliLaunchAttempted = true;
 
-    if (jliPath.empty() || javaPath.empty()) {
-        return fromString(env, "ERROR|libjli ou executável Java não informado");
+    if (jliPath.empty() || javaPath.empty() || workDir.empty()) {
+        return fromString(env, "ERROR|libjli, executável Java ou JAVA_HOME não informado");
     }
 
-    if (!workDir.empty() && chdir(workDir.c_str()) != 0) {
+    struct stat javaStat {};
+    if (stat(javaPath.c_str(), &javaStat) != 0) {
+        return fromString(env, "ERROR|bin/java não existe: " + errnoMessage("stat"));
+    }
+    if (!S_ISREG(javaStat.st_mode)) {
+        return fromString(env, "ERROR|bin/java existe mas não é arquivo regular");
+    }
+
+    if (chdir(workDir.c_str()) != 0) {
         return fromString(env, "ERROR|" + errnoMessage("chdir do JAVA_HOME falhou"));
+    }
+
+    const std::string ldLibraryPath = runtimeLibraryPath(workDir);
+    if (setenv("JAVA_HOME", workDir.c_str(), 1) != 0) {
+        return fromString(env, "ERROR|" + errnoMessage("setenv JAVA_HOME falhou"));
+    }
+    if (setenv("LD_LIBRARY_PATH", ldLibraryPath.c_str(), 1) != 0) {
+        return fromString(env, "ERROR|" + errnoMessage("setenv LD_LIBRARY_PATH falhou"));
     }
 
     dlerror();
@@ -178,26 +208,38 @@ Java_io_github_astromg01_launcher_nativebridge_AstraNativeBridge_launchJavaVersi
         "-Djava.awt.headless=true",
         "-version"
     };
+
+    // JLI/exec follow the normal C argv contract: argc counts real arguments and
+    // argv[argc] MUST be a null pointer. Alpha10 omitted this sentinel, which can
+    // surface as EFAULT / "Bad address" when the launcher prepares a re-exec.
     std::vector<char*> argv;
-    argv.reserve(storage.size());
+    argv.reserve(storage.size() + 1);
     for (std::string& argument : storage) {
         argv.push_back(argument.data());
     }
+    const int argc = static_cast<int>(argv.size());
+    argv.push_back(nullptr);
 
-    std::fprintf(stderr, "[Project Astra alpha10] JLI_Launch smoke test\n");
+    const bool executableBit = access(javaPath.c_str(), X_OK) == 0;
+
+    std::fprintf(stderr, "[Project Astra alpha11] JLI_Launch smoke test\n");
     std::fprintf(stderr, "libjli=%s\n", jliPath.c_str());
-    std::fprintf(stderr, "java=%s\n\n", javaPath.c_str());
+    std::fprintf(stderr, "java=%s\n", javaPath.c_str());
+    std::fprintf(stderr, "JAVA_HOME=%s\n", workDir.c_str());
+    std::fprintf(stderr, "LD_LIBRARY_PATH=%s\n", ldLibraryPath.c_str());
+    std::fprintf(stderr, "java_mode=%04o X_OK=%s\n", javaStat.st_mode & 07777, executableBit ? "yes" : "no");
+    std::fprintf(stderr, "argc=%d argv_null_terminated=%s\n\n", argc, argv[argc] == nullptr ? "yes" : "no");
     std::fflush(stderr);
 
     const int result = launch(
-        static_cast<int>(argv.size()),
+        argc,
         argv.data(),
         0,
         nullptr,
         0,
         nullptr,
-        "Project Astra 0.1.0-alpha10",
-        "0.1.0-alpha10",
+        "Project Astra 0.1.0-alpha11",
+        "0.1.0-alpha11",
         "java",
         "java",
         JNI_FALSE,
