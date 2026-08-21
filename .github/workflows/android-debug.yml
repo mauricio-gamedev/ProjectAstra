@@ -43,8 +43,21 @@ jobs:
         with:
           gradle-version: "9.4.1"
 
+      - name: Resolve signing mode
+        run: |
+          if [ -n "$ASTRA_DEV_KEYSTORE_BASE64" ] && \
+             [ -n "$ASTRA_DEV_KEYSTORE_PASSWORD" ] && \
+             [ -n "$ASTRA_DEV_KEY_ALIAS" ] && \
+             [ -n "$ASTRA_DEV_KEY_PASSWORD" ]; then
+            echo "ASTRA_ARTIFACT_NAME=project-astra-stable-signed-apk" >> "$GITHUB_ENV"
+            echo "Stable Project Astra signing is enabled."
+          else
+            echo "ASTRA_ARTIFACT_NAME=project-astra-temporary-signing-apk" >> "$GITHUB_ENV"
+            echo "::warning::Stable signing secrets are not configured. This APK may not update over another CI build."
+          fi
+
       - name: Prepare stable signing key
-        if: ${{ env.ASTRA_DEV_KEYSTORE_BASE64 != '' }}
+        if: ${{ env.ASTRA_DEV_KEYSTORE_BASE64 != '' && env.ASTRA_DEV_KEYSTORE_PASSWORD != '' && env.ASTRA_DEV_KEY_ALIAS != '' && env.ASTRA_DEV_KEY_PASSWORD != '' }}
         run: |
           echo "$ASTRA_DEV_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/astra-dev.jks"
 
@@ -56,6 +69,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: project-astra-debug-apk
+          name: ${{ env.ASTRA_ARTIFACT_NAME }}
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
