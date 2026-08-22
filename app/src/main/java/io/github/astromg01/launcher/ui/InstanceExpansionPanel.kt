@@ -20,14 +20,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.astromg01.astra.expansion.LoaderType
 import io.github.astromg01.launcher.core.MinecraftInstance
 import io.github.astromg01.launcher.core.PerformanceMode
+import io.github.astromg01.launcher.expansion.AstraExpansionBridge
 import io.github.astromg01.launcher.instance.InstanceViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun InstanceExpansionPanel(
@@ -169,20 +175,86 @@ private fun ModManagerDialog(
     viewModel: InstanceViewModel,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
-    val busy = viewModel.managingModsInstanceId == instance.id
+    var localBusy by remember { mutableStateOf(false) }
+    var localMessage by remember { mutableStateOf<String?>(null) }
+    var confirmPerformancePack by remember { mutableStateOf(false) }
+
+    val busy = viewModel.managingModsInstanceId == instance.id || localBusy
     val results = if (viewModel.modSearchInstanceId == instance.id) viewModel.modSearchResults else emptyList()
     val installed = if (viewModel.detectedModsInstanceId == instance.id) viewModel.detectedMods else emptyList()
+    val performanceTargets = remember(instance.loader, instance.loaderVersion) {
+        AstraExpansionBridge.performancePackTargets(instance)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Mods • ${instance.name}") },
         text = {
             Column(
-                Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+                Modifier.heightIn(max = 580.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("Fonte inicial: Modrinth. O Astra filtra Minecraft + loader e verifica hash antes de instalar.")
+                Text("Nenhum mod é instalado automaticamente.", fontWeight = FontWeight.SemiBold)
+
+                if (performanceTargets.isNotEmpty()) {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text("Astra Performance Pack", fontWeight = FontWeight.Bold)
+                            Text(
+                                "Preset manual. O Astra ainda valida a compatibilidade real de cada mod antes do download.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Text("Alvos: ${performanceTargets.joinToString()}", style = MaterialTheme.typography.labelSmall)
+
+                            if (!confirmPerformancePack) {
+                                OutlinedButton(
+                                    onClick = { confirmPerformancePack = true },
+                                    enabled = !busy,
+                                ) { Text("Revisar e instalar") }
+                            } else {
+                                Text("Confirmar instalação desses mods compatíveis?", color = MaterialTheme.colorScheme.primary)
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Button(
+                                        onClick = {
+                                            confirmPerformancePack = false
+                                            scope.launch {
+                                                localBusy = true
+                                                localMessage = "Instalando Astra Performance Pack…"
+                                                val result = runCatching {
+                                                    withContext(Dispatchers.IO) {
+                                                        AstraExpansionBridge.installPerformancePack(context, instance)
+                                                    }
+                                                }
+                                                result.onSuccess { installedPack ->
+                                                    val installedCount = installedPack.installedFiles.size
+                                                    val skippedCount = installedPack.skipped.size
+                                                    localMessage = buildString {
+                                                        append("Performance Pack: ").append(installedCount).append(" arquivo(s) instalado(s)")
+                                                        if (skippedCount > 0) append(" • ").append(skippedCount).append(" alvo(s) ignorado(s) por compatibilidade/disponibilidade")
+                                                    }
+                                                    viewModel.refreshDetectedMods(instance.id)
+                                                }.onFailure { error ->
+                                                    localMessage = error.message ?: "Falha ao instalar Performance Pack."
+                                                }
+                                                localBusy = false
+                                            }
+                                        },
+                                        enabled = !busy,
+                                    ) { Text("Confirmar instalação") }
+                                    TextButton(
+                                        onClick = { confirmPerformancePack = false },
+                                        enabled = !busy,
+                                    ) { Text("Cancelar") }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -198,7 +270,31 @@ private fun ModManagerDialog(
                 if (installed.isNotEmpty()) {
                     Text("Instalados/detectados", fontWeight = FontWeight.Bold)
                     installed.forEach { mod ->
-                        Text("• ${mod.name}${mod.version?.let { " $it" }.orEmpty()} [${mod.id}]", style = MaterialTheme.typography.bodySmall)
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("${mod.name}${mod.version?.let { " $it" }.orEmpty()} [${mod.id}]", style = MaterialTheme.typography.bodySmall)
+                                TextButton(
+                                    onClick = {
+                                        scope.launch {
+                                            localBusy = true
+                                            val result = runCatching {
+                                                withContext(Dispatchers.IO) {
+                                                    AstraExpansionBridge.disableMod(context, instance, mod.file)
+                                                }
+                                            }
+                                            result.onSuccess { disabled ->
+                                                localMessage = "${mod.name} desabilitado • ${disabled.name}"
+                                                viewModel.refreshDetectedMods(instance.id)
+                                            }.onFailure { error ->
+                                                localMessage = error.message ?: "Falha ao desabilitar ${mod.name}."
+                                            }
+                                            localBusy = false
+                                        }
+                                    },
+                                    enabled = !busy,
+                                ) { Text("Desabilitar") }
+                            }
+                        }
                     }
                 }
 
@@ -218,9 +314,10 @@ private fun ModManagerDialog(
                     }
                 }
                 viewModel.modMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+                localMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } },
+        confirmButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Fechar") } },
     )
 }
 
@@ -230,7 +327,11 @@ private fun PerformanceDialog(
     viewModel: InstanceViewModel,
     onDismiss: () -> Unit,
 ) {
-    val busy = viewModel.applyingOptimizationInstanceId == instance.id
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var rollbackBusy by remember { mutableStateOf(false) }
+    var rollbackMessage by remember { mutableStateOf<String?>(null) }
+    val busy = viewModel.applyingOptimizationInstanceId == instance.id || rollbackBusy
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -241,6 +342,7 @@ private fun PerformanceDialog(
                 PerformanceMode.entries.forEach { mode ->
                     OutlinedButton(
                         onClick = { viewModel.setPerformanceMode(instance.id, mode) },
+                        enabled = !busy,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(if (instance.performanceMode == mode) "✓ ${mode.name}" else mode.name)
@@ -250,10 +352,36 @@ private fun PerformanceDialog(
                     onClick = { viewModel.applyPerformanceProfile(instance.id) },
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (busy) "Aplicando…" else "Aplicar ao Minecraft") }
+                ) { Text(if (busy && !rollbackBusy) "Aplicando…" else "Aplicar ao Minecraft") }
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            rollbackBusy = true
+                            rollbackMessage = "Restaurando último snapshot…"
+                            val result = runCatching {
+                                withContext(Dispatchers.IO) {
+                                    AstraExpansionBridge.rollbackLatestOptimization(context, instance)
+                                }
+                            }
+                            result.onSuccess { restored ->
+                                rollbackMessage = if (restored) {
+                                    "Última otimização desfeita • options.txt restaurado com verificação de integridade."
+                                } else {
+                                    "Nenhum snapshot de otimização disponível para esta instância."
+                                }
+                            }.onFailure { error ->
+                                rollbackMessage = error.message ?: "Falha ao restaurar o último snapshot."
+                            }
+                            rollbackBusy = false
+                        }
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (rollbackBusy) "Restaurando…" else "Desfazer última otimização") }
                 viewModel.optimizationMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+                rollbackMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } },
+        confirmButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Fechar") } },
     )
 }
