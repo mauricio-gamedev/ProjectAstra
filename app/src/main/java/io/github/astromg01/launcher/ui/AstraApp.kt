@@ -293,6 +293,17 @@ private fun InstancesScreen(
                         )
                     }
 
+                    InstanceExpansionPanel(
+                        instance = instance,
+                        viewModel = viewModel,
+                        enabled = installed && runtimeReady &&
+                            viewModel.installingInstanceId == null &&
+                            viewModel.preparingLaunchInstanceId == null &&
+                            viewModel.managingLoaderInstanceId == null &&
+                            viewModel.managingModsInstanceId == null &&
+                            viewModel.applyingOptimizationInstanceId == null,
+                    )
+
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         when {
                             !installed -> {
@@ -313,7 +324,10 @@ private fun InstancesScreen(
                                 OutlinedButton(
                                     onClick = { viewModel.prepareLaunchPlan(instance.id) },
                                     enabled = viewModel.installingInstanceId == null &&
-                                        viewModel.preparingLaunchInstanceId == null
+                                        viewModel.preparingLaunchInstanceId == null &&
+                                        viewModel.managingLoaderInstanceId == null &&
+                                        viewModel.managingModsInstanceId == null &&
+                                        viewModel.applyingOptimizationInstanceId == null
                                 ) {
                                     Text(
                                         when {
