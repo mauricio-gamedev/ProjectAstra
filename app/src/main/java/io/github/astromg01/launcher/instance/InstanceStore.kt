@@ -33,7 +33,8 @@ class InstanceStore(context: Context) {
                                 RendererKind.AUTO
                             ),
                             memoryMb = item.optInt("memoryMb", 2048),
-                            loaderVersion = item.optString("loaderVersion").takeIf { it.isNotBlank() }
+                            loaderVersion = item.optString("loaderVersion").takeIf { it.isNotBlank() },
+                            loaderProfileId = item.optString("loaderProfileId").takeIf { it.isNotBlank() }
                         )
                     )
                 }
@@ -51,6 +52,7 @@ class InstanceStore(context: Context) {
                     put("minecraftVersion", instance.minecraftVersion)
                     put("loader", instance.loader ?: "")
                     put("loaderVersion", instance.loaderVersion ?: "")
+                    put("loaderProfileId", instance.loaderProfileId ?: "")
                     put("accountId", instance.accountId ?: "")
                     put("performanceMode", instance.performanceMode.name)
                     put("renderer", instance.renderer.name)
