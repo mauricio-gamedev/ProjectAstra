@@ -82,6 +82,9 @@ class AstraExpansionFacade(
         return modManager.installLatestCompatible(instance, projectIdOrSlug.trim())
     }
 
+    fun installPerformancePreset(instance: MinecraftInstance): PerformancePresetResult =
+        PerformanceModPresetInstaller(modManager, compatibility).install(instance)
+
     fun listInstalledModFiles(instance: MinecraftInstance): List<File> = modManager.listInstalled(instance)
 
     fun disableMod(instance: MinecraftInstance, modFile: File): File = modManager.disable(instance, modFile)
