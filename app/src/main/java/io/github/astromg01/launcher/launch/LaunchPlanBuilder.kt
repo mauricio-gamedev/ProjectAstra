@@ -245,7 +245,14 @@ object LaunchPlanBuilder {
         assetIndexId: String
     ): Map<String, String> {
         val uuid = account.uuid.replace("-", "")
-        val accessToken = account.accessToken.orEmpty()
+        // The historical AccountProfile does not persist OAuth tokens. Keep the placeholder
+        // empty rather than inventing or logging a credential; the Microsoft auth layer will
+        // provide a real token when that subsystem is connected.
+        val accessToken = ""
+        val userType = when (account.type) {
+            AccountType.MICROSOFT -> "msa"
+            AccountType.OFFLINE -> "legacy"
+        }
         val assetsIndex = metadata.optJSONObject("assetIndex")?.optString("id")
             ?.takeIf { it.isNotBlank() }
             ?: assetIndexId
@@ -260,7 +267,7 @@ object LaunchPlanBuilder {
             "${'$'}{auth_session}" to accessToken,
             "${'$'}{clientid}" to "",
             "${'$'}{auth_xuid}" to "",
-            "${'$'}{user_type}" to account.type.launchUserType,
+            "${'$'}{user_type}" to userType,
             "${'$'}{version_type}" to metadata.optString("type", "release"),
             "${'$'}{natives_directory}" to nativesDirectoryValue,
             "${'$'}{launcher_name}" to LAUNCHER_NAME,
