@@ -104,6 +104,9 @@ object AstraExpansionBridge {
         facade.rollbackOptimization(expansionInstance(context, instance), result)
     }
 
+    fun rollbackLatestOptimization(context: Context, instance: MinecraftInstance): Boolean =
+        facade.rollbackLatestOptimization(expansionInstance(context, instance))
+
     /**
      * Purely local launch transformation: loader profile + compatibility-aware optimization.
      * No network is touched here.
