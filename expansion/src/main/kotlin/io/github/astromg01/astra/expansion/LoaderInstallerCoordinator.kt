@@ -12,17 +12,26 @@ data class LoaderInstallationResult(
 class LoaderArtifactDownloader(private val http: SimpleHttpClient = SimpleHttpClient()) {
     fun download(root: File, artifact: RemoteArtifact): File {
         require(artifact.url.startsWith("https://")) { "Refusing non-HTTPS loader installer" }
-        require(artifact.sha1 != null || artifact.sha512 != null) { "Loader installer has no integrity hash: ${artifact.url}" }
-        val target = File(root, artifact.destinationRelativePath)
+        val verifiedArtifact = ensureIntegrityHash(artifact)
+        val target = File(root, verifiedArtifact.destinationRelativePath)
         target.parentFile?.mkdirs()
-        if (target.isFile && matches(target, artifact)) return target
+        if (target.isFile && matches(target, verifiedArtifact)) return target
         val temp = File(target.parentFile, target.name + ".astra.part")
         temp.delete()
-        http.download(artifact.url, temp, maxBytes = 128L * 1024 * 1024)
-        require(matches(temp, artifact)) { "Loader installer integrity mismatch" }
+        http.download(verifiedArtifact.url, temp, maxBytes = 128L * 1024 * 1024)
+        require(matches(temp, verifiedArtifact)) { "Loader installer integrity mismatch" }
         if (target.exists() && !target.delete()) error("Could not replace loader installer")
         require(temp.renameTo(target)) { "Could not finalize loader installer" }
         return target
+    }
+
+    private fun ensureIntegrityHash(artifact: RemoteArtifact): RemoteArtifact {
+        if (artifact.sha512 != null || artifact.sha1 != null) return artifact
+        val sha1 = http.getText(artifact.url + ".sha1").trim().substringBefore(' ').substringBefore('\n')
+        require(sha1.matches(Regex("[0-9a-fA-F]{40}"))) {
+            "Loader Maven returned an invalid SHA-1 sidecar for ${artifact.url}"
+        }
+        return artifact.copy(sha1 = sha1)
     }
 
     private fun matches(file: File, artifact: RemoteArtifact): Boolean {
