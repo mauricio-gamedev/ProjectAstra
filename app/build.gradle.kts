@@ -23,8 +23,8 @@ android {
         applicationId = "io.github.astromg01.launcher"
         minSdk = 26
         targetSdk = 36
-        versionCode = 40
-        versionName = "0.1.0-alpha40"
+        versionCode = 41
+        versionName = "0.1.0-alpha41"
         buildConfigField(
             "String",
             "SIGNING_MODE",
