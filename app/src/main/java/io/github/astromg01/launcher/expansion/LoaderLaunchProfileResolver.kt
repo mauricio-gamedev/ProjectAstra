@@ -45,7 +45,7 @@ object LoaderLaunchProfileResolver {
             "${'$'}{version_name}" to profileId,
             "${'$'}{natives_directory}" to File(minecraftRoot, "instances/${instance.id}/natives").absolutePath,
             "${'$'}{launcher_name}" to "ProjectAstra",
-            "${'$'}{launcher_version}" to "0.1.0-alpha39",
+            "${'$'}{launcher_version}" to "0.1.0-alpha40",
             "${'$'}{classpath}" to classpath.joinToString(File.pathSeparator),
         )
 
@@ -122,10 +122,23 @@ object LoaderLaunchProfileResolver {
     private fun replace(value: String, replacements: Map<String, String>): String {
         var resolved = value
         replacements.forEach { (key, replacement) -> resolved = resolved.replace(key, replacement) }
-        require(!Regex("\\$\\{[^}]+}").containsMatchIn(resolved)) {
-            "Argumento do loader contém placeholder não resolvido: $resolved"
+        val unresolved = unresolvedPlaceholder(resolved)
+        require(unresolved == null) {
+            "Argumento do loader contém placeholder não resolvido: ${unresolved ?: resolved}"
         }
         return resolved
+    }
+
+    /**
+     * Loader placeholders use the literal ${'$'}{name} syntax. A direct scan is intentional here:
+     * it avoids constructing a regular expression during launch and therefore cannot fail with
+     * PatternSyntaxException on Android's regex implementation.
+     */
+    private fun unresolvedPlaceholder(value: String): String? {
+        val start = value.indexOf("${'$'}{")
+        if (start < 0) return null
+        val end = value.indexOf('}', startIndex = start + 2)
+        return if (end >= 0) value.substring(start, end + 1) else value.substring(start)
     }
 
     private fun addJvmReplacingSameKey(args: MutableList<String>, candidate: String) {
