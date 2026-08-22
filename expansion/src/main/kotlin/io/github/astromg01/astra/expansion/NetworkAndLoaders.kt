@@ -125,15 +125,17 @@ class QuiltProvider(private val http: SimpleHttpClient) : LoaderProvider {
     override fun resolve(minecraftVersion: String, loaderVersion: String?): LoaderInstallPlan {
         val entry = entries(minecraftVersion).firstOrNull { loaderVersion == null || it.loaderVersion == loaderVersion }
             ?: error("No Quilt loader found for Minecraft $minecraftVersion")
+        val profileUrl = "https://meta.quiltmc.org/v3/versions/loader/$minecraftVersion/${entry.loaderVersion}/profile/json"
+        val profile = AstraJson.parse(http.getText(profileUrl)) as JsonValue.Obj
+        val libraries = profile.array("libraries")?.values.orEmpty().mapNotNull { (it as? JsonValue.Obj)?.string("name") }
         return LoaderInstallPlan(
             loader = LoaderSelection(type, entry.loaderVersion),
             minecraftVersion = minecraftVersion,
             artifacts = emptyList(),
-            installerRequired = true,
-            notes = listOf(
-                "Quilt version compatibility resolved from Quilt Meta API.",
-                "Profile materialization is delegated to the launcher integration layer so the Android launch core remains authoritative."
-            ),
+            mainClass = profile.string("mainClass"),
+            libraries = libraries,
+            installerRequired = false,
+            notes = listOf("Quilt launcher profile resolved from the official Quilt Meta v3 API."),
         )
     }
 
