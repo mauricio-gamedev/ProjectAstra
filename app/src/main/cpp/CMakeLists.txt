@@ -12,7 +12,6 @@ set(ASTRA_OBOE_COMMIT "faa019cb12f448d18b5ab2b933272cf0c16763b2") # 1.10.2
 FetchContent_Declare(
     astra_oboe_source
     URL "https://github.com/google/oboe/archive/${ASTRA_OBOE_COMMIT}.tar.gz"
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_GetProperties(astra_oboe_source)
 if(NOT astra_oboe_source_POPULATED)
@@ -40,7 +39,6 @@ set(ALSOFT_WERROR OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     astra_openal_soft
     URL "https://github.com/kcat/openal-soft/archive/${ASTRA_OPENAL_SOFT_COMMIT}.tar.gz"
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(astra_openal_soft)
 
@@ -72,7 +70,15 @@ add_library(
 )
 
 target_compile_features(pojavexec PRIVATE cxx_std_17)
-target_compile_options(pojavexec PRIVATE -Wall -Wextra -Werror=return-type)
+target_compile_options(
+    pojavexec
+    PRIVATE
+    -Wall
+    -Wextra
+    -Werror=return-type
+    -include
+    "${CMAKE_CURRENT_SOURCE_DIR}/astra_pojavexec_egl_compat.h"
+)
 
 target_link_libraries(
     pojavexec
