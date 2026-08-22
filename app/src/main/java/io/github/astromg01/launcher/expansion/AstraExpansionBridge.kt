@@ -3,6 +3,7 @@ package io.github.astromg01.launcher.expansion
 import android.content.Context
 import android.os.Build
 import io.github.astromg01.astra.expansion.AstraExpansionFacade
+import io.github.astromg01.astra.expansion.AstraPerformancePreset
 import io.github.astromg01.astra.expansion.DeviceProfile as ExpansionDeviceProfile
 import io.github.astromg01.astra.expansion.DetectedMod
 import io.github.astromg01.astra.expansion.InstanceInspection
@@ -16,6 +17,7 @@ import io.github.astromg01.astra.expansion.MinecraftInstance as ExpansionInstanc
 import io.github.astromg01.astra.expansion.ModProject
 import io.github.astromg01.astra.expansion.OptimizationApplyResult
 import io.github.astromg01.astra.expansion.OptimizationProfile
+import io.github.astromg01.astra.expansion.PerformancePresetResult
 import io.github.astromg01.launcher.core.DeviceProfiler
 import io.github.astromg01.launcher.core.MinecraftInstance
 import io.github.astromg01.launcher.core.PerformanceMode
@@ -75,8 +77,17 @@ object AstraExpansionBridge {
     fun installMod(context: Context, instance: MinecraftInstance, projectIdOrSlug: String): List<InstalledMod> =
         facade.installLatestCompatibleMod(expansionInstance(context, instance), projectIdOrSlug)
 
+    fun performancePackTargets(instance: MinecraftInstance): List<String> =
+        AstraPerformancePreset.targets(loaderType(instance.loader))
+
+    fun installPerformancePack(context: Context, instance: MinecraftInstance): PerformancePresetResult =
+        facade.installPerformancePreset(expansionInstance(context, instance))
+
     fun detectedMods(context: Context, instance: MinecraftInstance): List<DetectedMod> =
         inspect(context, instance).detectedMods
+
+    fun disableMod(context: Context, instance: MinecraftInstance, modFile: File): File =
+        facade.disableMod(expansionInstance(context, instance), modFile)
 
     fun applyOptimization(context: Context, instance: MinecraftInstance): OptimizationApplyResult =
         facade.applyOptimization(
@@ -84,6 +95,14 @@ object AstraExpansionBridge {
             profile = optimizationProfile(instance.performanceMode),
             device = deviceProfile(context),
         )
+
+    fun rollbackOptimization(
+        context: Context,
+        instance: MinecraftInstance,
+        result: OptimizationApplyResult,
+    ) {
+        facade.rollbackOptimization(expansionInstance(context, instance), result)
+    }
 
     /**
      * Purely local launch transformation: loader profile + compatibility-aware optimization.
