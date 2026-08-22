@@ -270,9 +270,11 @@ std::string startGraphicsLocked(const std::string& rendererPath) {
     }
     gEglInitialized = true;
 
-    // Exercise MobileGlues' desktop-OpenGL virtualisation path, not plain GLES.
-    if (gGraphicsApi.eglBindAPI(EGL_OPENGL_API) != EGL_TRUE) {
-        return failGraphicsLocked("eglBindAPI(OpenGL) falhou");
+    // Device-proven alpha38 behavior. MobileGlues exposes the desktop-GL facade
+    // through an EGL/OpenGL-ES binding on Android; using EGL_OPENGL_API regresses
+    // to the pre-alpha29 path.
+    if (gGraphicsApi.eglBindAPI(EGL_OPENGL_ES_API) != EGL_TRUE) {
+        return failGraphicsLocked("eglBindAPI(OpenGL ES) falhou");
     }
 
     const EGLint primaryConfig[] = {
@@ -372,7 +374,9 @@ std::string startGraphicsLocked(const std::string& rendererPath) {
     const char* glVendor = reinterpret_cast<const char*>(gGraphicsApi.glGetString(GL_VENDOR));
     const char* glRenderer = reinterpret_cast<const char*>(gGraphicsApi.glGetString(GL_RENDERER));
     const char* glVersion = reinterpret_cast<const char*>(gGraphicsApi.glGetString(GL_VERSION));
-    const char* glslVersion = reinterpret_cast<const char*>(gGraphicsApi.glGetString(GL_SHADING_LANGUAGE_VERSION));
+    // alpha38 deliberately disabled the GLSL glGetString path with an invalid enum
+    // in its binary patch. In clean source, skip the diagnostic call altogether.
+    const char* glslVersion = nullptr;
 
     std::ostringstream description;
     description << "MobileGlues EGL ativo ✓\n";
@@ -383,7 +387,7 @@ std::string startGraphicsLocked(const std::string& rendererPath) {
     description << "GL_VENDOR: " << safeString(glVendor) << "\n";
     description << "GL_RENDERER: " << safeString(glRenderer) << "\n";
     description << "GL_VERSION: " << safeString(glVersion) << "\n";
-    description << "GLSL: " << safeString(glslVersion) << "\n";
+    description << "GLSL: " << safeString(glslVersion, "não consultado") << "\n";
     description << "SwapBuffers ✓ • visual " << nativeVisualId << " • " << width << 'x' << height;
     gGraphicsDescription = description.str();
     return "OK|" + gGraphicsDescription;
