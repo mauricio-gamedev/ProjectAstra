@@ -65,9 +65,7 @@ class LoaderRegistry(http: SimpleHttpClient = SimpleHttpClient()) {
         NeoForgeProvider(http),
     ).associateBy { it.type }
 
-    fun provider(type: LoaderType): LoaderProvider =
-        providers[type] ?: error("No provider for $type")
-
+    fun provider(type: LoaderType): LoaderProvider = providers[type] ?: error("No provider for $type")
     fun supportedTypes(): Set<LoaderType> = providers.keys
 }
 
@@ -92,14 +90,16 @@ class FabricProvider(private val http: SimpleHttpClient) : LoaderProvider {
         val entry = entries(minecraftVersion).firstOrNull { loaderVersion == null || it.loaderVersion == loaderVersion }
             ?: error("No Fabric loader found for Minecraft $minecraftVersion${loaderVersion?.let { " / $it" } ?: ""}")
         val profileUrl = "https://meta.fabricmc.net/v2/versions/loader/$minecraftVersion/${entry.loaderVersion}/profile/json"
-        val profile = AstraJson.parse(http.getText(profileUrl)) as JsonValue.Obj
-        val libraries = profile.array("libraries")?.values.orEmpty().mapNotNull { (it as? JsonValue.Obj)?.string("name") }
+        val profileJson = http.getText(profileUrl)
+        val profile = AstraJson.parse(profileJson) as JsonValue.Obj
         return LoaderInstallPlan(
             loader = LoaderSelection(type, entry.loaderVersion),
             minecraftVersion = minecraftVersion,
             artifacts = emptyList(),
+            profileId = profile.string("id"),
+            profileJson = profileJson,
             mainClass = profile.string("mainClass"),
-            libraries = libraries,
+            libraries = parseProfileLibraries(profile),
             notes = listOf("Fabric profile metadata resolved from Fabric Meta API."),
         )
     }
@@ -126,14 +126,16 @@ class QuiltProvider(private val http: SimpleHttpClient) : LoaderProvider {
         val entry = entries(minecraftVersion).firstOrNull { loaderVersion == null || it.loaderVersion == loaderVersion }
             ?: error("No Quilt loader found for Minecraft $minecraftVersion")
         val profileUrl = "https://meta.quiltmc.org/v3/versions/loader/$minecraftVersion/${entry.loaderVersion}/profile/json"
-        val profile = AstraJson.parse(http.getText(profileUrl)) as JsonValue.Obj
-        val libraries = profile.array("libraries")?.values.orEmpty().mapNotNull { (it as? JsonValue.Obj)?.string("name") }
+        val profileJson = http.getText(profileUrl)
+        val profile = AstraJson.parse(profileJson) as JsonValue.Obj
         return LoaderInstallPlan(
             loader = LoaderSelection(type, entry.loaderVersion),
             minecraftVersion = minecraftVersion,
             artifacts = emptyList(),
+            profileId = profile.string("id"),
+            profileJson = profileJson,
             mainClass = profile.string("mainClass"),
-            libraries = libraries,
+            libraries = parseProfileLibraries(profile),
             installerRequired = false,
             notes = listOf("Quilt launcher profile resolved from the official Quilt Meta v3 API."),
         )
@@ -150,6 +152,97 @@ class QuiltProvider(private val http: SimpleHttpClient) : LoaderProvider {
     }
 
     private data class Entry(val loaderVersion: String)
+}
+
+private fun parseProfileLibraries(profile: JsonValue.Obj): List<LoaderLibrary> =
+    profile.array("libraries")?.values.orEmpty().mapNotNull { value ->
+        val obj = value as? JsonValue.Obj ?: return@mapNotNull null
+        val name = obj.string("name") ?: return@mapNotNull null
+        val artifact = obj.obj("downloads")?.obj("artifact")
+        LoaderLibrary(
+            name = name,
+            repositoryUrl = obj.string("url"),
+            directUrl = artifact?.string("url"),
+            sha1 = artifact?.string("sha1"),
+            size = artifact?.number("size")?.toLong(),
+        )
+    }
+
+class LoaderProfileMaterializer(private val http: SimpleHttpClient = SimpleHttpClient()) {
+    fun materialize(minecraftHome: File, plan: LoaderInstallPlan): File {
+        val profileId = plan.profileId ?: error("Loader ${plan.loader.type} did not provide a launcher profile id")
+        val profileJson = plan.profileJson ?: error("Loader ${plan.loader.type} did not provide launcher profile JSON")
+        require(plan.loader.type == LoaderType.FABRIC || plan.loader.type == LoaderType.QUILT) {
+            "Direct profile materialization is only valid for Fabric/Quilt"
+        }
+
+        val librariesRoot = File(minecraftHome, "libraries")
+        plan.libraries.forEach { library ->
+            val coordinate = MavenCoordinate.parse(library.name)
+            val relativePath = coordinate.relativePath()
+            val target = File(librariesRoot, relativePath)
+            if (!target.exists()) {
+                val url = library.directUrl ?: coordinate.downloadUrl(library.repositoryUrl
+                    ?: error("No repository URL for ${library.name}"))
+                validateHttps(url)
+                target.parentFile?.mkdirs()
+                val temp = File(target.parentFile, target.name + ".astra.part")
+                temp.delete()
+                http.download(url, temp, maxBytes = 64L * 1024 * 1024)
+                library.size?.let { require(temp.length() == it) { "Size mismatch for ${library.name}" } }
+                library.sha1?.let { require(Hashing.sha1(temp).equals(it, ignoreCase = true)) { "SHA-1 mismatch for ${library.name}" } }
+                if (target.exists() && !target.delete()) error("Could not replace ${target.name}")
+                require(temp.renameTo(target)) { "Could not finalize ${library.name}" }
+            }
+        }
+
+        val versionDir = File(File(minecraftHome, "versions"), profileId)
+        versionDir.mkdirs()
+        val profileFile = File(versionDir, "$profileId.json")
+        val tempProfile = File(versionDir, ".$profileId.json.astra.tmp")
+        tempProfile.writeText(profileJson)
+        require(AstraJson.parse(tempProfile.readText()) is JsonValue.Obj) { "Invalid loader profile JSON" }
+        if (profileFile.exists() && !profileFile.delete()) error("Could not replace ${profileFile.name}")
+        require(tempProfile.renameTo(profileFile)) { "Could not finalize loader profile" }
+        return profileFile
+    }
+
+    private fun validateHttps(url: String) {
+        val uri = URI(url)
+        require(uri.scheme.equals("https", ignoreCase = true)) { "Refusing non-HTTPS loader artifact: $url" }
+        require(!uri.host.isNullOrBlank()) { "Loader artifact URL has no host: $url" }
+    }
+}
+
+internal data class MavenCoordinate(
+    val group: String,
+    val artifact: String,
+    val version: String,
+    val classifier: String? = null,
+    val extension: String = "jar",
+) {
+    fun relativePath(): String {
+        val fileName = buildString {
+            append(artifact).append('-').append(version)
+            classifier?.let { append('-').append(it) }
+            append('.').append(extension)
+        }
+        return group.replace('.', '/') + "/$artifact/$version/$fileName"
+    }
+
+    fun downloadUrl(repositoryUrl: String): String = repositoryUrl.trimEnd('/') + "/" + relativePath()
+
+    companion object {
+        fun parse(raw: String): MavenCoordinate {
+            val splitExtension = raw.split('@', limit = 2)
+            val parts = splitExtension[0].split(':')
+            require(parts.size in 3..4) { "Unsupported Maven coordinate: $raw" }
+            return MavenCoordinate(
+                group = parts[0], artifact = parts[1], version = parts[2],
+                classifier = parts.getOrNull(3), extension = splitExtension.getOrNull(1) ?: "jar",
+            )
+        }
+    }
 }
 
 class ForgeProvider(private val http: SimpleHttpClient) : LoaderProvider {
