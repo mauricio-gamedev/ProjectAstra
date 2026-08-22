@@ -1,0 +1,77 @@
+name: Android Debug APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main", "develop", "astra-alpha39-integration"]
+  pull_request:
+
+concurrency:
+  group: android-debug-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ASTRA_DEV_KEYSTORE_BASE64: ${{ secrets.ASTRA_DEV_KEYSTORE_BASE64 }}
+      ASTRA_DEV_KEYSTORE_PASSWORD: ${{ secrets.ASTRA_DEV_KEYSTORE_PASSWORD }}
+      ASTRA_DEV_KEY_ALIAS: ${{ secrets.ASTRA_DEV_KEY_ALIAS }}
+      ASTRA_DEV_KEY_PASSWORD: ${{ secrets.ASTRA_DEV_KEY_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK and NDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.3.13750724" "cmake;3.22.1"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.4.1"
+
+      - name: Test expansion module
+        run: gradle :expansion:test --stacktrace
+
+      - name: Resolve signing mode
+        run: |
+          if [ -n "$ASTRA_DEV_KEYSTORE_BASE64" ] && \
+             [ -n "$ASTRA_DEV_KEYSTORE_PASSWORD" ] && \
+             [ -n "$ASTRA_DEV_KEY_ALIAS" ] && \
+             [ -n "$ASTRA_DEV_KEY_PASSWORD" ]; then
+            echo "ASTRA_ARTIFACT_NAME=project-astra-stable-signed-apk" >> "$GITHUB_ENV"
+            echo "Stable Project Astra signing is enabled."
+          else
+            echo "ASTRA_ARTIFACT_NAME=project-astra-temporary-signing-apk" >> "$GITHUB_ENV"
+            echo "::warning::Stable signing secrets are not configured. This APK may not update over another CI build."
+          fi
+
+      - name: Prepare stable signing key
+        if: ${{ env.ASTRA_DEV_KEYSTORE_BASE64 != '' && env.ASTRA_DEV_KEYSTORE_PASSWORD != '' && env.ASTRA_DEV_KEY_ALIAS != '' && env.ASTRA_DEV_KEY_PASSWORD != '' }}
+        run: |
+          echo "$ASTRA_DEV_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/astra-dev.jks"
+
+      - name: Build debug APK
+        env:
+          ASTRA_DEV_KEYSTORE_FILE: ${{ runner.temp }}/astra-dev.jks
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASTRA_ARTIFACT_NAME }}
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
