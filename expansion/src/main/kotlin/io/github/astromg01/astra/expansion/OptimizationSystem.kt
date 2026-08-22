@@ -127,8 +127,10 @@ class OptimizationEngine(private val compatibility: CompatibilityEngine = Compat
         }
         return when (profile) {
             OptimizationProfile.COMPATIBILITY -> base.coerceAtMost(2048)
+            OptimizationProfile.QUALITY -> base
             OptimizationProfile.BALANCED -> base
             OptimizationProfile.PERFORMANCE -> (base + 256).coerceAtMost((totalRamMb * 0.55).toInt()).coerceAtLeast(1024)
+            OptimizationProfile.ADAPTIVE -> base
             OptimizationProfile.EXPERIMENTAL -> base
         }
     }
