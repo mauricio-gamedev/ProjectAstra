@@ -39,14 +39,15 @@ object LoaderLaunchProfileResolver {
             }
         }
 
+        val classpathString = classpath.joinToString(File.pathSeparator)
         val replacements = linkedMapOf(
             "${'$'}{library_directory}" to librariesRoot.absolutePath,
             "${'$'}{classpath_separator}" to File.pathSeparator,
             "${'$'}{version_name}" to profileId,
             "${'$'}{natives_directory}" to File(minecraftRoot, "instances/${instance.id}/natives").absolutePath,
             "${'$'}{launcher_name}" to "ProjectAstra",
-            "${'$'}{launcher_version}" to "0.1.0-alpha40",
-            "${'$'}{classpath}" to classpath.joinToString(File.pathSeparator),
+            "${'$'}{launcher_version}" to "0.1.0-alpha41",
+            "${'$'}{classpath}" to classpathString,
         )
 
         val arguments = profile.optJSONObject("arguments")
@@ -55,6 +56,11 @@ object LoaderLaunchProfileResolver {
 
         val jvm = base.jvmArguments.toMutableList()
         loaderJvm.forEach { addJvmReplacingSameKey(jvm, it) }
+        // The vanilla plan already contains a resolved -cp value. Once loader libraries are
+        // merged into LaunchPlan.classpath, that launcher argument must be rebuilt as well;
+        // otherwise JLI still sees the old vanilla-only classpath and cannot load KnotClient.
+        enforceFinalClasspath(jvm, classpathString)
+
         val game = base.gameArguments.toMutableList().apply {
             loaderGame.forEach { if (it !in this) add(it) }
         }
@@ -63,6 +69,7 @@ object LoaderLaunchProfileResolver {
             put("ASTRA_LOADER", instance.loader.orEmpty())
             put("ASTRA_LOADER_VERSION", instance.loaderVersion.orEmpty())
             put("ASTRA_LOADER_PROFILE", profileId)
+            put("ASTRA_LOADER_CLASSPATH_COUNT", classpath.size.toString())
         }
 
         return base.copy(
@@ -139,6 +146,35 @@ object LoaderLaunchProfileResolver {
         if (start < 0) return null
         val end = value.indexOf('}', startIndex = start + 2)
         return if (end >= 0) value.substring(start, end + 1) else value.substring(start)
+    }
+
+    /** Canonicalizes every Java launcher classpath form to one final -cp value. */
+    private fun enforceFinalClasspath(args: MutableList<String>, classpath: String) {
+        val cleaned = ArrayList<String>(args.size + 2)
+        var index = 0
+        while (index < args.size) {
+            val argument = args[index]
+            when {
+                argument == "-cp" || argument == "-classpath" || argument == "--class-path" -> {
+                    require(index + 1 < args.size) { "Argumento JVM $argument sem valor de classpath" }
+                    index += 2
+                }
+                argument.startsWith("--class-path=") -> index += 1
+                else -> {
+                    cleaned += argument
+                    index += 1
+                }
+            }
+        }
+        cleaned += "-cp"
+        cleaned += classpath
+        args.clear()
+        args.addAll(cleaned)
+
+        val cpIndex = args.indexOf("-cp")
+        require(cpIndex >= 0 && cpIndex + 1 < args.size && args[cpIndex + 1] == classpath) {
+            "Falha interna ao aplicar o classpath final do loader"
+        }
     }
 
     private fun addJvmReplacingSameKey(args: MutableList<String>, candidate: String) {
