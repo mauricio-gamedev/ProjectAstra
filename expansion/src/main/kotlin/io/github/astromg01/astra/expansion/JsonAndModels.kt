@@ -149,7 +149,7 @@ object AstraJson {
 
 enum class LoaderType { VANILLA, FABRIC, QUILT, FORGE, NEOFORGE }
 enum class ModSource { MODRINTH, CURSEFORGE, MANUAL }
-enum class OptimizationProfile { COMPATIBILITY, BALANCED, PERFORMANCE, EXPERIMENTAL }
+enum class OptimizationProfile { COMPATIBILITY, QUALITY, BALANCED, PERFORMANCE, ADAPTIVE, EXPERIMENTAL }
 enum class Risk { SAFE, CONDITIONAL, EXPERIMENTAL }
 
 data class MinecraftInstance(
