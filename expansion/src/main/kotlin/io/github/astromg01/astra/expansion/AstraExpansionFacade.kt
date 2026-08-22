@@ -126,6 +126,12 @@ class AstraExpansionFacade(
         rollbackStore.rollback(File(instance.root, "options.txt"), result.snapshot)
     }
 
+    fun rollbackLatestOptimization(instance: MinecraftInstance): Boolean {
+        val snapshot = rollbackStore.latest(File(instance.root, ".astra/rollback")) ?: return false
+        rollbackStore.rollback(File(instance.root, "options.txt"), snapshot)
+        return true
+    }
+
     fun analyzeMinecraftLog(log: String): MinecraftLogMetrics = MinecraftLogPerformanceAnalyzer.analyze(log)
 
     fun previewAdaptive(
