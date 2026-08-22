@@ -169,12 +169,22 @@ data class RemoteArtifact(
     val size: Long? = null,
 )
 
+data class LoaderLibrary(
+    val name: String,
+    val repositoryUrl: String? = null,
+    val directUrl: String? = null,
+    val sha1: String? = null,
+    val size: Long? = null,
+)
+
 data class LoaderInstallPlan(
     val loader: LoaderSelection,
     val minecraftVersion: String,
     val artifacts: List<RemoteArtifact>,
+    val profileId: String? = null,
+    val profileJson: String? = null,
     val mainClass: String? = null,
-    val libraries: List<String> = emptyList(),
+    val libraries: List<LoaderLibrary> = emptyList(),
     val jvmArgs: List<String> = emptyList(),
     val gameArgs: List<String> = emptyList(),
     val installerRequired: Boolean = false,
