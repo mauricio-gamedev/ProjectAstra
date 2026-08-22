@@ -24,7 +24,8 @@ data class MinecraftInstance(
     val performanceMode: PerformanceMode = PerformanceMode.ADAPTIVE,
     val renderer: RendererKind = RendererKind.AUTO,
     val memoryMb: Int = 2048,
-    val loaderVersion: String? = null
+    val loaderVersion: String? = null,
+    val loaderProfileId: String? = null
 )
 
 data class DeviceProfile(
