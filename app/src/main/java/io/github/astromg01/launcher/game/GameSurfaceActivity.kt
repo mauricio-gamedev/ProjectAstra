@@ -15,6 +15,7 @@ import android.widget.TextView
 import io.github.astromg01.launcher.account.AccountProfile
 import io.github.astromg01.launcher.account.AccountStore
 import io.github.astromg01.launcher.core.MinecraftInstance
+import io.github.astromg01.launcher.expansion.AstraExpansionBridge
 import io.github.astromg01.launcher.instance.InstanceStore
 import io.github.astromg01.launcher.launch.LaunchPlanBuilder
 import io.github.astromg01.launcher.nativebridge.AstraNativeBridge
@@ -354,7 +355,8 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
                 selectedInstance = instance
                 selectedVersion = instance.minecraftVersion
 
-                val plan = LaunchPlanBuilder.build(this, instance, account)
+                val vanillaPlan = LaunchPlanBuilder.build(this, instance, account)
+                val plan = AstraExpansionBridge.prepareLaunch(this, instance, vanillaPlan)
                 selectedJava = plan.javaMajorVersion
                 selectedMainClass = plan.mainClass
 
