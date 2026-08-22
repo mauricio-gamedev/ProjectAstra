@@ -80,6 +80,8 @@ object LaunchPlanBuilder {
             add("-Xmx${instance.memoryMb.coerceAtLeast(768)}M")
             add("-Dorg.lwjgl.librarypath=${lwjglNatives.directoryPath}")
             add("-Dorg.lwjgl.system.allocator=system")
+            // Device-proven since alpha20: prevents LWJGL from resolving desktop GLX on Android.
+            add("-Dorg.lwjgl.opengl.libname=libmobileglues.so")
 
             val metadataJvm = metadata.optJSONObject("arguments")?.optJSONArray("jvm")
             if (metadataJvm != null) {
@@ -242,61 +244,54 @@ object LaunchPlanBuilder {
         classpath: String,
         assetIndexId: String
     ): Map<String, String> {
-        val versionType = metadata.optString("type", "release")
-        val accessToken = if (account.type == AccountType.OFFLINE) "0" else ""
-        val session = if (account.type == AccountType.OFFLINE) {
-            "token:0:${account.uuid}"
-        } else {
-            ""
-        }
-
-        return mapOf(
+        val uuid = account.uuid.replace("-", "")
+        val accessToken = account.accessToken.orEmpty()
+        val assetsIndex = metadata.optJSONObject("assetIndex")?.optString("id")
+            ?.takeIf { it.isNotBlank() }
+            ?: assetIndexId
+        return linkedMapOf(
             "${'$'}{auth_player_name}" to account.username,
             "${'$'}{version_name}" to instance.minecraftVersion,
             "${'$'}{game_directory}" to gameDir.absolutePath,
             "${'$'}{assets_root}" to assetsDir.absolutePath,
-            "${'$'}{game_assets}" to File(assetsDir, "virtual/legacy").absolutePath,
-            "${'$'}{assets_index_name}" to assetIndexId,
-            "${'$'}{auth_uuid}" to account.uuid.replace("-", ""),
+            "${'$'}{assets_index_name}" to assetsIndex,
+            "${'$'}{auth_uuid}" to uuid,
             "${'$'}{auth_access_token}" to accessToken,
-            "${'$'}{auth_session}" to session,
+            "${'$'}{auth_session}" to accessToken,
             "${'$'}{clientid}" to "",
             "${'$'}{auth_xuid}" to "",
-            "${'$'}{user_type}" to if (account.type == AccountType.OFFLINE) "legacy" else "msa",
-            "${'$'}{user_properties}" to "{}",
-            "${'$'}{version_type}" to versionType,
+            "${'$'}{user_type}" to account.type.launchUserType,
+            "${'$'}{version_type}" to metadata.optString("type", "release"),
             "${'$'}{natives_directory}" to nativesDirectoryValue,
             "${'$'}{launcher_name}" to LAUNCHER_NAME,
             "${'$'}{launcher_version}" to LAUNCHER_VERSION,
             "${'$'}{classpath}" to classpath,
-            "${'$'}{classpath_separator}" to File.pathSeparator,
             "${'$'}{library_directory}" to librariesDir.absolutePath,
+            "${'$'}{classpath_separator}" to File.pathSeparator,
             "${'$'}{resolution_width}" to "1280",
             "${'$'}{resolution_height}" to "720"
         )
     }
 
     private fun expand(value: String, placeholders: Map<String, String>): String {
-        var expanded = value
-        placeholders.forEach { (key, replacement) ->
-            expanded = expanded.replace(key, replacement)
-        }
-        return expanded
+        var output = value
+        placeholders.forEach { (key, replacement) -> output = output.replace(key, replacement) }
+        return output
     }
 
     private fun tokenize(raw: String): List<String> {
         val result = mutableListOf<String>()
         val current = StringBuilder()
         var quote: Char? = null
-        var escaping = false
-
-        raw.forEach { char ->
+        var escaped = false
+        for (char in raw) {
+            if (escaped) {
+                current.append(char)
+                escaped = false
+                continue
+            }
             when {
-                escaping -> {
-                    current.append(char)
-                    escaping = false
-                }
-                char == '\\' -> escaping = true
+                char == '\\' -> escaped = true
                 quote != null && char == quote -> quote = null
                 quote == null && (char == '\'' || char == '"') -> quote = char
                 quote == null && char.isWhitespace() -> {
@@ -308,8 +303,7 @@ object LaunchPlanBuilder {
                 else -> current.append(char)
             }
         }
-
-        if (escaping) current.append('\\')
+        if (escaped) current.append('\\')
         if (current.isNotEmpty()) result += current.toString()
         return result
     }
