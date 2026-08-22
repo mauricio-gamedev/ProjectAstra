@@ -3,7 +3,7 @@ name: Android Debug APK
 on:
   workflow_dispatch:
   push:
-    branches: ["main", "develop"]
+    branches: ["main", "develop", "astra-alpha39-integration"]
   pull_request:
 
 concurrency:
@@ -42,6 +42,9 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.4.1"
+
+      - name: Test expansion module
+        run: gradle :expansion:test --stacktrace
 
       - name: Resolve signing mode
         run: |
