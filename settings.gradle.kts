@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "ProjectAstra"
 include(":app")
+include(":expansion")
