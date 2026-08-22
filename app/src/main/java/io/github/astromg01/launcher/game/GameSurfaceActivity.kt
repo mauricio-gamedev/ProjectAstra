@@ -18,6 +18,7 @@ import io.github.astromg01.launcher.core.MinecraftInstance
 import io.github.astromg01.launcher.expansion.AstraExpansionBridge
 import io.github.astromg01.launcher.instance.InstanceStore
 import io.github.astromg01.launcher.launch.LaunchPlanBuilder
+import io.github.astromg01.launcher.nativebridge.AstraGlfwBridge
 import io.github.astromg01.launcher.nativebridge.AstraNativeBridge
 import io.github.astromg01.launcher.nativebridge.NativeRuntimeValidator
 import io.github.astromg01.launcher.renderer.RendererComponentManager
@@ -25,6 +26,7 @@ import io.github.astromg01.launcher.runtime.RuntimeInstaller
 
 class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
     private lateinit var statusView: TextView
+    private lateinit var topActionButton: Button
     private lateinit var jvmButton: Button
     private lateinit var minecraftButton: Button
     private var surfaceAttached = false
@@ -78,12 +80,12 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
             }
         )
 
-        val close = Button(this).apply {
+        topActionButton = Button(this).apply {
             text = "Voltar"
             setOnClickListener { finish() }
         }
         root.addView(
-            close,
+            topActionButton,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -170,6 +172,7 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
         graphicsStarted = false
         setLaunchButtons(false)
         if (!launchRunning) {
+            setMinecraftInputMode(false)
             statusView.text = "Surface Android destruída • EGL e bridge liberados"
         }
     }
@@ -219,7 +222,7 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
                 append(result.detail)
                 append("\n\nFrame verde apresentado pela cadeia:\n")
                 append("ANativeWindow → MobileGlues → EGL → OpenGL → SwapBuffers ✓\n")
-                append("\nAlpha12: JVM validada; Minecraft boot real disponível.")
+                append("\nSource integration: JVM + Minecraft boot disponíveis.")
                 append("\nEscolha apenas UM teste por abertura do Bridge test.")
             }
         } else {
@@ -243,7 +246,7 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
         }
 
         statusView.text = buildString {
-            append("Project Astra • JVM Bridge alpha12\n")
+            append("Project Astra • JVM Bridge\n")
             append("Graphics Bridge validado ✓\n")
             append("Processo de jogo isolado: :game ✓\n\n")
             append("Executando smoke test do OpenJDK…")
@@ -337,11 +340,11 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
         }
 
         statusView.text = buildString {
-            append("Project Astra • Minecraft Boot alpha12\n")
+            append("Project Astra • Minecraft Boot\n")
             append("Graphics Bridge validado ✓\n")
             append("JVM/JLI validada no dispositivo ✓\n")
             append("Processo isolado :game ✓\n\n")
-            append("Montando LaunchPlan real da instância…")
+            append("Montando LaunchPlan real + expansão da instância…")
         }
 
         Thread {
@@ -385,15 +388,17 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
 
                 runOnUiThread {
                     statusView.text = buildString {
-                        append("Project Astra • Minecraft Boot alpha12\n")
+                        append("Project Astra • Minecraft Boot\n")
                         append("Instância: ${instance.name}\n")
                         append("Minecraft: ${plan.minecraftVersion}\n")
                         append("Java: ${plan.javaMajorVersion}\n")
                         append("Main: ${plan.mainClass}\n")
                         append("Classpath: ${plan.classpathCount} entradas\n")
                         append("JVM args: ${plan.jvmArguments.size} • Game args: ${plan.gameArguments.size}\n\n")
-                        append("Entrando na main class real…")
+                        append("Entrando na main class real…\n")
+                        append("Input queue: TAB/NEXT + ENTER prontos")
                     }
+                    setMinecraftInputMode(true)
                 }
 
                 val launch = AstraNativeBridge.launchMinecraft(
@@ -440,6 +445,7 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
             }
 
             runOnUiThread {
+                setMinecraftInputMode(false)
                 result.onSuccess { report ->
                     statusView.text = buildString {
                         append(if (report.success) "Project Astra • Minecraft retornou ✓\n" else "Project Astra • Minecraft parou\n")
@@ -476,6 +482,26 @@ class GameSurfaceActivity : Activity(), SurfaceHolder.Callback {
             ?: error("Nenhuma conta disponível. Adicione uma conta offline ou Microsoft primeiro.")
 
         return instance to account
+    }
+
+    private fun setMinecraftInputMode(enabled: Boolean) {
+        if (enabled) {
+            jvmButton.text = "TAB/NEXT"
+            jvmButton.isEnabled = true
+            jvmButton.setOnClickListener { AstraGlfwBridge.tapTab() }
+
+            topActionButton.text = "ENTER!"
+            topActionButton.setOnClickListener { AstraGlfwBridge.tapEnter() }
+            minecraftButton.isEnabled = false
+        } else {
+            jvmButton.text = "JVM test"
+            jvmButton.isEnabled = false
+            jvmButton.setOnClickListener { runJvmTest() }
+
+            topActionButton.text = "Voltar"
+            topActionButton.setOnClickListener { finish() }
+            minecraftButton.isEnabled = false
+        }
     }
 
     private fun setLaunchButtons(enabled: Boolean) {
