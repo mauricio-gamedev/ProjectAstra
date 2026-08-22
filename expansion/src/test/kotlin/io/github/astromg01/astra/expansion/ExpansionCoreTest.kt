@@ -36,6 +36,17 @@ class ExpansionCoreTest {
         assertEquals(1, result.jvmArgs.count { it.startsWith("-Dorg.lwjgl.system.allocator") })
     }
 
+    @Test fun adaptiveEngineChangesOneMeasuredBottleneck() {
+        val decision = AdaptiveOptimizationEngine().evaluate(
+            PerformanceSample(averageFps = 12.0, p95FrameTimeMs = 90.0, serverBehindMs = 2051, usedMemoryMb = 900, memoryLimitMb = 1536, renderDistance = 12, simulationDistance = 12),
+            LoaderType.VANILLA,
+            emptySet(),
+        )
+        assertEquals("simulationDistance", decision.action?.optionKey)
+        assertEquals("11", decision.action?.optionValue)
+        assertTrue(decision.confidence >= 0.9)
+    }
+
     @Test fun optionsTunerPreservesUnknownKeys() {
         val dir = Files.createTempDirectory("astra-options").toFile()
         val file = dir.resolve("options.txt")
